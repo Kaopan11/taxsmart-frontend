@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -9,6 +10,12 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { ensureSession, fetchMe, logoutRequest } from "@/lib/auth-api";
+import {
+  getStoredUser,
+  isAdminRole,
+  type StoredAuthUser,
+} from "@/lib/auth-storage";
 import {
   getInvoiceById,
   listInvoices,
@@ -136,7 +143,12 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // P1: รอเช็ก token ก่อนโชว์ dashboard
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState<StoredAuthUser | null>(null);
 
   // Step 5: เริ่มว่าง แล้วโหลดจาก GET /invoices
   const [invoices, setInvoices] = useState<DashboardInvoice[]>([]);
@@ -161,6 +173,48 @@ export default function DashboardPage() {
   // รายการเต็มสำหรับสรุปการ์ด (ไม่ใส่ filter)
   const [allInvoices, setAllInvoices] = useState<DashboardInvoice[]>([]);
 
+  // P2/P3: session + ดึง role ล่าสุดจาก GET /auth/me
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkAuth() {
+      const ok = await ensureSession();
+      if (cancelled) return;
+      if (!ok) {
+        router.replace("/login");
+        return;
+      }
+
+      try {
+        const me = await fetchMe();
+        if (cancelled) return;
+        setAuthUser(me);
+      } catch {
+        if (cancelled) return;
+        // ถ้า /auth/me พัง ยังใช้ค่าใน localStorage ได้ชั่วคราว
+        setAuthUser(getStoredUser());
+      }
+      setAuthReady(true);
+    }
+
+    void checkAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  function handleUnauthorized() {
+    void logoutRequest().then(() => {
+      router.replace("/login");
+    });
+  }
+
+  function handleLogout() {
+    void logoutRequest().then(() => {
+      router.push("/login");
+    });
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(search.trim());
@@ -170,6 +224,8 @@ export default function DashboardPage() {
 
   // โหลดสรุปการ์ดครั้งเดียว (และหลังอัปโหลดจะ upsert แยก)
   useEffect(() => {
+    if (!authReady) return;
+
     let cancelled = false;
 
     async function loadSummary() {
@@ -177,8 +233,10 @@ export default function DashboardPage() {
         const rows = await listInvoices();
         if (cancelled) return;
         setAllInvoices(rows.map((row) => mapApiToDashboard(row)));
-      } catch {
-        // การ์ดพังไม่บล็อกตาราง — error หลักอยู่ที่ list ด้านล่าง
+      } catch (error) {
+        if (error instanceof Error && error.message === "UNAUTHORIZED") {
+          handleUnauthorized();
+        }
       }
     }
 
@@ -186,10 +244,13 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- P1: โหลดครั้งเดียวหลัง auth พร้อม
+  }, [authReady]);
 
   // Step B (server filter): โหลดตารางตาม q / status / category จาก Nest
   useEffect(() => {
+    if (!authReady) return;
+
     let cancelled = false;
 
     async function loadInvoices() {
@@ -205,6 +266,10 @@ export default function DashboardPage() {
         setInvoices(rows.map((row) => mapApiToDashboard(row)));
       } catch (error) {
         if (cancelled) return;
+        if (error instanceof Error && error.message === "UNAUTHORIZED") {
+          handleUnauthorized();
+          return;
+        }
         setListError(
           error instanceof Error ? error.message : "Failed to load invoices",
         );
@@ -217,7 +282,8 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, categoryFilter, statusFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authReady, debouncedSearch, categoryFilter, statusFilter]);
 
   // Step F9: การ์ดสรุปจากรายการเต็ม — ไม่ผูกกับ filter ของตาราง
   const summary = useMemo(() => {
@@ -296,6 +362,10 @@ export default function DashboardPage() {
         setUploadMessage(null);
       }
     } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED") {
+        handleUnauthorized();
+        return;
+      }
       const message =
         error instanceof Error ? error.message : "Upload failed";
       setUploadError(message);
@@ -333,6 +403,14 @@ export default function DashboardPage() {
     }
   }
 
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
+        Checking session…
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
       <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
@@ -343,14 +421,30 @@ export default function DashboardPage() {
           <span className="text-lg font-semibold">TaxSmart AI</span>
         </Link>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-zinc-600">User Profile</span>
-          {/* Step F9 — ลิงก์ไป /login เฉย ๆ ยังไม่ล้าง session/JWT */}
-          <Link
-            href="/login"
+          {/* P3: ลิงก์ Admin โชว์เฉพาะ ADMIN */}
+          {isAdminRole(authUser?.role) && (
+            <Link
+              href="/admin"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-800 hover:bg-emerald-100"
+            >
+              Admin
+            </Link>
+          )}
+          <span className="text-zinc-600">
+            {authUser?.fullName || authUser?.email || "User"}
+          </span>
+          {authUser?.role && (
+            <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
+              {authUser.role}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleLogout}
             className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
           >
             Logout
-          </Link>
+          </button>
         </div>
       </header>
 
