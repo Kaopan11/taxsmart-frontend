@@ -110,7 +110,8 @@ function mapApiToDashboard(
     amount: formatAmount(api.totalAmount),
     amountNumber: parseAmount(api.totalAmount),
     status: api.ocrStatus,
-    category: formatCategory(api.rawOcrData?.category),
+    // ใช้คอลัมน์ category ก่อน ถ้าไม่มีค่อยอ่านจาก rawOcrData
+    category: formatCategory(api.category ?? api.rawOcrData?.category),
     previewUrl,
   };
 }
@@ -153,8 +154,40 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>(
     "all",
   );
+  // debounce คำค้น — ไม่ยิง API ทุกครั้งที่พิมพ์
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // Step 5: โหลดรายการจาก MySQL ตอนเปิดหน้า
+  // รายการเต็มสำหรับสรุปการ์ด (ไม่ใส่ filter)
+  const [allInvoices, setAllInvoices] = useState<DashboardInvoice[]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  // โหลดสรุปการ์ดครั้งเดียว (และหลังอัปโหลดจะ upsert แยก)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSummary() {
+      try {
+        const rows = await listInvoices();
+        if (cancelled) return;
+        setAllInvoices(rows.map((row) => mapApiToDashboard(row)));
+      } catch {
+        // การ์ดพังไม่บล็อกตาราง — error หลักอยู่ที่ list ด้านล่าง
+      }
+    }
+
+    void loadSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Step B (server filter): โหลดตารางตาม q / status / category จาก Nest
   useEffect(() => {
     let cancelled = false;
 
@@ -162,7 +195,11 @@ export default function DashboardPage() {
       setIsLoadingList(true);
       setListError(null);
       try {
-        const rows = await listInvoices();
+        const rows = await listInvoices({
+          q: debouncedSearch || undefined,
+          status: statusFilter,
+          category: categoryFilter || undefined,
+        });
         if (cancelled) return;
         setInvoices(rows.map((row) => mapApiToDashboard(row)));
       } catch (error) {
@@ -179,48 +216,23 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [debouncedSearch, categoryFilter, statusFilter]);
 
-  // Step F9: การ์ดสรุปใช้ข้อมูลทั้งหมด — ไม่ผูกกับ filter ของตาราง
+  // Step F9: การ์ดสรุปจากรายการเต็ม — ไม่ผูกกับ filter ของตาราง
   const summary = useMemo(() => {
-    const completed = invoices.filter((row) => row.status === "COMPLETED");
+    const completed = allInvoices.filter((row) => row.status === "COMPLETED");
     const totalExpenses = completed.reduce(
       (sum, row) => sum + (row.amountNumber ?? 0),
       0,
     );
-    // ประมาณการลดหย่อนแบบง่าย 15% — ยังไม่ใช่สูตรภาษีจริง
     const taxSavings = totalExpenses * 0.15;
 
     return {
       totalExpenses,
       taxSavings,
-      totalCount: invoices.length,
+      totalCount: allInvoices.length,
     };
-  }, [invoices]);
-
-  // ---------- Step F3–F6: กรองใน browser จากรายการที่โหลดมาแล้ว ----------
-  const filteredInvoices = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
-    return invoices.filter((row) => {
-      // F4: Search — ชื่อร้าน OR Tax ID OR เลขที่บิล (ไม่สนตัวพิมพ์)
-      const matchSearch =
-        q.length === 0 ||
-        row.storeName.toLowerCase().includes(q) ||
-        row.taxId.toLowerCase().includes(q) ||
-        row.invoiceNumber.toLowerCase().includes(q);
-
-      // F5: Category — ว่าง = ทุกหมวด
-      const matchCategory =
-        categoryFilter === "" || row.category === categoryFilter;
-
-      // F6: Status — all = ทุกสถานะ
-      const matchStatus =
-        statusFilter === "all" || row.status === statusFilter;
-
-      return matchSearch && matchCategory && matchStatus;
-    });
-  }, [invoices, search, categoryFilter, statusFilter]);
+  }, [allInvoices]);
 
   function openFilePicker() {
     fileInputRef.current?.click();
@@ -228,6 +240,11 @@ export default function DashboardPage() {
 
   function upsertInvoice(row: DashboardInvoice) {
     setInvoices((prev) => {
+      const without = prev.filter((item) => item.id !== row.id);
+      return [row, ...without];
+    });
+    // อัปเดตการ์ดสรุปด้วย
+    setAllInvoices((prev) => {
       const without = prev.filter((item) => item.id !== row.id);
       return [row, ...without];
     });
@@ -464,7 +481,7 @@ export default function DashboardPage() {
                     </tr>
                   )}
 
-                  {!isLoadingList && invoices.length === 0 && !listError && (
+                  {!isLoadingList && allInvoices.length === 0 && !listError && (
                     <tr>
                       <td
                         colSpan={6}
@@ -475,10 +492,10 @@ export default function DashboardPage() {
                     </tr>
                   )}
 
-                  {/* Step F8: มีข้อมูลแต่ filter ไม่ตรงแถวใดเลย */}
+                  {/* Step F8: มีข้อมูลทั้งระบบ แต่ filter บน server ไม่คืนแถว */}
                   {!isLoadingList &&
-                    invoices.length > 0 &&
-                    filteredInvoices.length === 0 && (
+                    allInvoices.length > 0 &&
+                    invoices.length === 0 && (
                       <tr>
                         <td
                           colSpan={6}
@@ -490,7 +507,7 @@ export default function DashboardPage() {
                     )}
 
                   {!isLoadingList &&
-                    filteredInvoices.map((invoice) => (
+                    invoices.map((invoice) => (
                       <tr key={invoice.id} className="hover:bg-zinc-50">
                         <td className="px-4 py-3 whitespace-nowrap">
                           {invoice.date}
