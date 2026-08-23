@@ -16,7 +16,7 @@ export type UploadResponse = {
   ocrStatus: ApiOcrStatus;
 };
 
-/** ตอบจาก GET /invoices/:id */
+/** ตอบจาก GET /invoices/:id และ GET /invoices */
 export type InvoiceApiResponse = {
   id: string;
   ocrStatus: ApiOcrStatus;
@@ -25,9 +25,12 @@ export type InvoiceApiResponse = {
   invoiceNumber: string | null;
   issueDate: string | null;
   totalAmount: string | null;
+  /** รหัสหมวดจาก DB เช่น OFFICE_SUPPLIES (อาจเป็น null ในใบเก่า) */
+  category?: string | null;
   rawOcrData: {
     storeName?: string | null;
     taxId?: string | null;
+    invoiceNumber?: string | null;
     invoiceDate?: string | null;
     totalAmount?: number | null;
     category?: string | null;
@@ -35,6 +38,13 @@ export type InvoiceApiResponse = {
   } | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Query ของ GET /invoices?q=&status=&category= */
+export type InvoiceListParams = {
+  q?: string;
+  status?: string;
+  category?: string;
 };
 
 /** อัปโหลดไฟล์ → ได้ invoiceId ทันที (ไม่รอ Gemini) */
@@ -70,9 +80,30 @@ export async function getInvoiceById(
   return response.json() as Promise<InvoiceApiResponse>;
 }
 
-/** Step 5: ดึงรายการใบทั้งหมดจาก MySQL */
-export async function listInvoices(): Promise<InvoiceApiResponse[]> {
-  const response = await fetch(`${API_URL}/invoices`);
+/**
+ * Step B (server filter): ดึงรายการพร้อม query
+ * ตัวอย่าง: /invoices?q=7-Eleven&status=COMPLETED&category=Office%20Supplies
+ */
+export async function listInvoices(
+  params: InvoiceListParams = {},
+): Promise<InvoiceApiResponse[]> {
+  const searchParams = new URLSearchParams();
+  if (params.q?.trim()) {
+    searchParams.set("q", params.q.trim());
+  }
+  if (params.status && params.status !== "all") {
+    searchParams.set("status", params.status);
+  }
+  if (params.category?.trim()) {
+    searchParams.set("category", params.category.trim());
+  }
+
+  const query = searchParams.toString();
+  const url = query
+    ? `${API_URL}/invoices?${query}`
+    : `${API_URL}/invoices`;
+
+  const response = await fetch(url);
 
   if (!response.ok) {
     const text = await response.text();
