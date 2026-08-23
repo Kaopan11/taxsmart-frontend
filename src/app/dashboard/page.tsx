@@ -52,6 +52,18 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: "Other",
 };
 
+// Step F7: รายการหมวดใน dropdown (ค่าที่โชว์ในตารางหลัง map)
+const CATEGORY_FILTER_OPTIONS = Object.values(CATEGORY_LABELS);
+
+const STATUS_FILTER_OPTIONS: Array<InvoiceStatus | "all"> = [
+  "all",
+  "PENDING",
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+  "DUPLICATE",
+];
+
 function formatCategory(raw?: string | null): string {
   if (!raw) return "Other";
   return CATEGORY_LABELS[raw] ?? raw;
@@ -135,6 +147,13 @@ export default function DashboardPage() {
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // ---------- Step F2: ค่า filter จากแถบค้นหา ----------
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>(
+    "all",
+  );
+
   // Step 5: โหลดรายการจาก MySQL ตอนเปิดหน้า
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +181,7 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Step 5: การ์ดสรุปคำนวณจากข้อมูลจริง (ไม่ใช่ตัวเลขปลอม)
+  // Step F9: การ์ดสรุปใช้ข้อมูลทั้งหมด — ไม่ผูกกับ filter ของตาราง
   const summary = useMemo(() => {
     const completed = invoices.filter((row) => row.status === "COMPLETED");
     const totalExpenses = completed.reduce(
@@ -178,6 +197,30 @@ export default function DashboardPage() {
       totalCount: invoices.length,
     };
   }, [invoices]);
+
+  // ---------- Step F3–F6: กรองใน browser จากรายการที่โหลดมาแล้ว ----------
+  const filteredInvoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    return invoices.filter((row) => {
+      // F4: Search — ชื่อร้าน OR Tax ID OR เลขที่บิล (ไม่สนตัวพิมพ์)
+      const matchSearch =
+        q.length === 0 ||
+        row.storeName.toLowerCase().includes(q) ||
+        row.taxId.toLowerCase().includes(q) ||
+        row.invoiceNumber.toLowerCase().includes(q);
+
+      // F5: Category — ว่าง = ทุกหมวด
+      const matchCategory =
+        categoryFilter === "" || row.category === categoryFilter;
+
+      // F6: Status — all = ทุกสถานะ
+      const matchStatus =
+        statusFilter === "all" || row.status === statusFilter;
+
+      return matchSearch && matchCategory && matchStatus;
+    });
+  }, [invoices, search, categoryFilter, statusFilter]);
 
   function openFilePicker() {
     fileInputRef.current?.click();
@@ -354,29 +397,39 @@ export default function DashboardPage() {
         </section>
 
         <section className="space-y-4">
+          {/* ---------- Step F1: เปิดใช้ filter bar (เอา disabled ออก) ---------- */}
           <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 sm:flex-row sm:items-center">
             <input
               type="search"
-              placeholder="Search Store / Tax ID..."
+              placeholder="Search Store / Tax ID / Invoice No..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              disabled
             />
             <select
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
-              disabled
-              defaultValue=""
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
             >
               <option value="">Filter Category</option>
+              {CATEGORY_FILTER_OPTIONS.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
             </select>
             <select
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
-              disabled
-              defaultValue="all"
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as "all" | InvoiceStatus)
+              }
             >
-              <option value="all">Status: All</option>
-              <option value="COMPLETED">COMPLETED</option>
-              <option value="PROCESSING">PROCESSING</option>
-              <option value="DUPLICATE">DUPLICATE</option>
+              {STATUS_FILTER_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {value === "all" ? "Status: All" : value}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -422,8 +475,22 @@ export default function DashboardPage() {
                     </tr>
                   )}
 
+                  {/* Step F8: มีข้อมูลแต่ filter ไม่ตรงแถวใดเลย */}
                   {!isLoadingList &&
-                    invoices.map((invoice) => (
+                    invoices.length > 0 &&
+                    filteredInvoices.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-8 text-center text-zinc-500"
+                        >
+                          No invoices match your search / filters
+                        </td>
+                      </tr>
+                    )}
+
+                  {!isLoadingList &&
+                    filteredInvoices.map((invoice) => (
                       <tr key={invoice.id} className="hover:bg-zinc-50">
                         <td className="px-4 py-3 whitespace-nowrap">
                           {invoice.date}
