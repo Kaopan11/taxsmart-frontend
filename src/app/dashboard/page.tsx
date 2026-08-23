@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -335,20 +336,21 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
       <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
             TS
           </div>
           <span className="text-lg font-semibold">TaxSmart AI</span>
-        </div>
+        </Link>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-zinc-600">User Profile</span>
-          <button
-            type="button"
+          {/* Step F9 — ลิงก์ไป /login เฉย ๆ ยังไม่ล้าง session/JWT */}
+          <Link
+            href="/login"
             className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
           >
             Logout
-          </button>
+          </Link>
         </div>
       </header>
 
