@@ -7,7 +7,8 @@ export type ApiOcrStatus =
   | "PENDING"
   | "PROCESSING"
   | "COMPLETED"
-  | "FAILED";
+  | "FAILED"
+  | "DUPLICATE"; // Step F1: รองรับสถานะใบซ้ำจาก backend
 
 /** ตอบจาก POST /invoices/upload (202) */
 export type UploadResponse = {
@@ -82,8 +83,8 @@ export async function listInvoices(): Promise<InvoiceApiResponse[]> {
 }
 
 /**
- * poll ซ้ำจนกว่า COMPLETED หรือ FAILED
- * intervalMs = หน่วงระหว่างรอบ (ค่าเริ่ม 2 วินาที)
+ * poll ซ้ำจนกว่าจบงาน OCR
+ * จบเมื่อ COMPLETED | FAILED | DUPLICATE (ใบซ้ำก็ถือว่า process เสร็จแล้ว)
  */
 export async function pollInvoiceUntilDone(
   id: string,
@@ -93,9 +94,11 @@ export async function pollInvoiceUntilDone(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const invoice = await getInvoiceById(id);
 
+    // Step F1: ต้องหยุดเมื่อ DUPLICATE ด้วย ไม่งั้นจะ poll จน timeout
     if (
       invoice.ocrStatus === "COMPLETED" ||
-      invoice.ocrStatus === "FAILED"
+      invoice.ocrStatus === "FAILED" ||
+      invoice.ocrStatus === "DUPLICATE"
     ) {
       return invoice;
     }

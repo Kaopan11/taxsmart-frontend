@@ -28,6 +28,8 @@ type DashboardInvoice = {
   date: string;
   storeName: string;
   taxId: string;
+  /** เลขที่บิล — ใช้คู่กับ taxId ตอนเช็กซ้ำฝั่ง backend */
+  invoiceNumber: string;
   amount: string;
   /** ตัวเลขดิบสำหรับคำนวณการ์ดสรุป */
   amountNumber: number | null;
@@ -92,6 +94,7 @@ function mapApiToDashboard(
     date: formatDate(api.issueDate),
     storeName: api.merchantName ?? "—",
     taxId: api.merchantTaxId ?? "—",
+    invoiceNumber: api.invoiceNumber ?? "—",
     amount: formatAmount(api.totalAmount),
     amountNumber: parseAmount(api.totalAmount),
     status: api.ocrStatus,
@@ -202,6 +205,7 @@ export default function DashboardPage() {
         date: "—",
         storeName: file.name,
         taxId: "—",
+        invoiceNumber: "—",
         amount: "—",
         amountNumber: null,
         status: "PENDING",
@@ -215,9 +219,15 @@ export default function DashboardPage() {
       const mapped = mapApiToDashboard(done, previewUrl);
       upsertInvoice(mapped);
 
+      // Step F2: แยกผลหลัง OCR จบ — DUPLICATE ไม่ใช่ error
       if (done.ocrStatus === "COMPLETED") {
         setSelectedInvoice(mapped);
         setUploadMessage("OCR completed");
+      } else if (done.ocrStatus === "DUPLICATE") {
+        setSelectedInvoice(mapped);
+        setUploadMessage(
+          "Duplicate receipt — same tax ID and invoice number already exist",
+        );
       } else {
         setUploadError(
           done.rawOcrData?.error ?? "OCR failed — check backend logs",
@@ -516,6 +526,16 @@ export default function DashboardPage() {
                   />
                 </label>
 
+                {/* Step F3: โชว์เลขที่บิล — คู่กับ Tax ID ที่ backend ใช้เช็กซ้ำ */}
+                <label className="block text-sm">
+                  <span className="text-zinc-600">Invoice Number</span>
+                  <input
+                    type="text"
+                    defaultValue={selectedInvoice.invoiceNumber}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
+                  />
+                </label>
+
                 <label className="block text-sm">
                   <span className="text-zinc-600">Invoice Date</span>
                   <input
@@ -552,8 +572,17 @@ export default function DashboardPage() {
                   </select>
                 </label>
 
-                <p className="text-sm text-amber-700">
-                  [!] Status: {selectedInvoice.status}
+                {/* Step F3: ข้อความสถานะ — ใบซ้ำต้องชัดว่าไม่ใช่ error ทั่วไป */}
+                <p
+                  className={
+                    selectedInvoice.status === "DUPLICATE"
+                      ? "text-sm text-red-700"
+                      : "text-sm text-amber-700"
+                  }
+                >
+                  {selectedInvoice.status === "DUPLICATE"
+                    ? "[!] Status: DUPLICATE — ใบนี้ซ้ำกับที่มีในระบบ (เลขผู้เสียภาษี + เลขที่บิล)"
+                    : `[!] Status: ${selectedInvoice.status}`}
                 </p>
 
                 <div className="flex justify-between pt-2">
@@ -564,9 +593,11 @@ export default function DashboardPage() {
                   >
                     Cancel
                   </button>
+                  {/* Step F3: ใบซ้ำยังไม่ให้ Save (ยังไม่มี PATCH จริงอยู่แล้ว) */}
                   <button
                     type="button"
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                    disabled={selectedInvoice.status === "DUPLICATE"}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Save Invoice
                   </button>
