@@ -47,12 +47,32 @@ export type InvoiceListParams = {
 
 async function assertOk(response: Response, label: string) {
   if (response.ok) return;
-  const text = await response.text();
   if (response.status === 401) {
     throw new Error("UNAUTHORIZED");
   }
-  throw new Error(`${label} failed (${response.status}): ${text}`);
+  const text = await response.text();
+  let detail = text;
+  try {
+    const data = JSON.parse(text) as { message?: string | string[] };
+    if (Array.isArray(data.message)) {
+      detail = data.message.join(", ");
+    } else if (typeof data.message === "string") {
+      detail = data.message;
+    }
+  } catch {
+    // ใช้ข้อความดิบถ้าไม่ใช่ JSON
+  }
+  throw new Error(`${label} failed (${response.status}): ${detail}`);
 }
+
+export type UpdateInvoiceBody = {
+  merchantName?: string;
+  merchantTaxId?: string;
+  invoiceNumber?: string;
+  issueDate?: string;
+  totalAmount?: number;
+  category?: string;
+};
 
 /** อัปโหลดไฟล์ → ได้ invoiceId ทันที */
 export async function uploadInvoice(file: File): Promise<UploadResponse> {
@@ -121,4 +141,17 @@ export async function pollInvoiceUntilDone(
   }
 
   throw new Error("OCR timed out — try again later");
+}
+
+export async function updateInvoice(
+  id: string,
+  body: UpdateInvoiceBody,
+): Promise<InvoiceApiResponse> {
+  const response = await apiFetch(`${API_URL}/invoices/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  await assertOk(response, "Update invoice");
+  return response.json() as Promise<InvoiceApiResponse>;
 }
