@@ -20,8 +20,10 @@ import {
   getInvoiceById,
   listInvoices,
   pollInvoiceUntilDone,
+  updateInvoice,
   uploadInvoice,
   type InvoiceApiResponse,
+  type UpdateInvoiceBody,
 } from "@/lib/invoices-api";
 
 type InvoiceStatus =
@@ -104,6 +106,34 @@ function formatBaht(n: number): string {
   })}`;
 }
 
+function isSaveableStatus(status: InvoiceStatus): boolean {
+  return status === "COMPLETED" || status === "FAILED";
+}
+
+function displayToFormValue(value: string): string {
+  return value === "—" ? "" : value;
+}
+
+function optionalTrimmed(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "—") return undefined;
+  return trimmed;
+}
+
+function parseFormAmount(raw: string): number | undefined {
+  const cleaned = raw.replace(/[฿,\s]/g, "").trim();
+  if (!cleaned || cleaned === "—") return undefined;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? undefined : n;
+}
+
+function parseFormDate(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "—") return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
 /** แปลงคำตอบ API → แถวในตาราง */
 function mapApiToDashboard(
   api: InvoiceApiResponse,
@@ -156,6 +186,16 @@ export default function DashboardPage() {
     useState<DashboardInvoice | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+
+  const [formStoreName, setFormStoreName] = useState("");
+  const [formTaxId, setFormTaxId] = useState("");
+  const [formInvoiceNumber, setFormInvoiceNumber] = useState("");
+  const [formDate, setFormDate] = useState("");
+  const [formAmount, setFormAmount] = useState("");
+  const [formCategory, setFormCategory] = useState("Other");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -400,6 +440,87 @@ export default function DashboardPage() {
       setSelectedInvoice(mapApiToDashboard(fresh, invoice.previewUrl));
     } catch {
       setSelectedInvoice(invoice);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedInvoice) return;
+    setFormStoreName(displayToFormValue(selectedInvoice.storeName));
+    setFormTaxId(displayToFormValue(selectedInvoice.taxId));
+    setFormInvoiceNumber(displayToFormValue(selectedInvoice.invoiceNumber));
+    setFormDate(displayToFormValue(selectedInvoice.date));
+    setFormAmount(displayToFormValue(selectedInvoice.amount));
+    setFormCategory(selectedInvoice.category || "Other");
+    setSaveError(null);
+    setSaveMessage(null);
+    // ผูกแค่ id — ไม่รีเซ็ตฟอร์มตอน Save อัปเดต object เดิม
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedInvoice?.id]);
+
+  function closeReviewModal() {
+    setSelectedInvoice(null);
+    setSaveError(null);
+    setSaveMessage(null);
+  }
+
+  async function handleSave() {
+    if (!selectedInvoice || !isSaveableStatus(selectedInvoice.status)) {
+      return;
+    }
+
+    if (formAmount.trim() && formAmount.trim() !== "—" && parseFormAmount(formAmount) == null) {
+      setSaveError("Total amount must be a number.");
+      setSaveMessage(null);
+      return;
+    }
+
+    if (formDate.trim() && formDate.trim() !== "—" && !parseFormDate(formDate)) {
+      setSaveError("Invoice date must be YYYY-MM-DD.");
+      setSaveMessage(null);
+      return;
+    }
+
+    const body: UpdateInvoiceBody = {};
+    const merchantName = optionalTrimmed(formStoreName);
+    const merchantTaxId = optionalTrimmed(formTaxId);
+    const invoiceNumber = optionalTrimmed(formInvoiceNumber);
+    const issueDate = parseFormDate(formDate);
+    const totalAmount = parseFormAmount(formAmount);
+    const category = optionalTrimmed(formCategory);
+
+    if (merchantName) body.merchantName = merchantName;
+    if (merchantTaxId) body.merchantTaxId = merchantTaxId;
+    if (invoiceNumber) body.invoiceNumber = invoiceNumber;
+    if (issueDate) body.issueDate = issueDate;
+    if (totalAmount !== undefined) body.totalAmount = totalAmount;
+    if (category) body.category = category;
+
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+
+    try {
+      const updated = await updateInvoice(selectedInvoice.id, body);
+      const row = mapApiToDashboard(updated, selectedInvoice.previewUrl);
+      upsertInvoice(row);
+      setSelectedInvoice(row);
+      setFormStoreName(displayToFormValue(row.storeName));
+      setFormTaxId(displayToFormValue(row.taxId));
+      setFormInvoiceNumber(displayToFormValue(row.invoiceNumber));
+      setFormDate(displayToFormValue(row.date));
+      setFormAmount(displayToFormValue(row.amount));
+      setFormCategory(row.category || "Other");
+      setSaveMessage("Saved");
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED") {
+        handleUnauthorized();
+        return;
+      }
+      setSaveError(
+        error instanceof Error ? error.message : "Save invoice failed",
+      );
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -652,7 +773,7 @@ export default function DashboardPage() {
               </h2>
               <button
                 type="button"
-                onClick={() => setSelectedInvoice(null)}
+                onClick={closeReviewModal}
                 className="rounded-md px-2 py-1 text-zinc-500 hover:bg-zinc-100"
                 aria-label="Close"
               >
@@ -692,7 +813,9 @@ export default function DashboardPage() {
                   <span className="text-zinc-600">Store Name / Vendor</span>
                   <input
                     type="text"
-                    defaultValue={selectedInvoice.storeName}
+                    value={formStoreName}
+                    onChange={(event) => setFormStoreName(event.target.value)}
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -701,7 +824,9 @@ export default function DashboardPage() {
                   <span className="text-zinc-600">Tax ID (13 digits)</span>
                   <input
                     type="text"
-                    defaultValue={selectedInvoice.taxId}
+                    value={formTaxId}
+                    onChange={(event) => setFormTaxId(event.target.value)}
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
                   />
                 </label>
@@ -711,7 +836,11 @@ export default function DashboardPage() {
                   <span className="text-zinc-600">Invoice Number</span>
                   <input
                     type="text"
-                    defaultValue={selectedInvoice.invoiceNumber}
+                    value={formInvoiceNumber}
+                    onChange={(event) =>
+                      setFormInvoiceNumber(event.target.value)
+                    }
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
                   />
                 </label>
@@ -720,7 +849,10 @@ export default function DashboardPage() {
                   <span className="text-zinc-600">Invoice Date</span>
                   <input
                     type="text"
-                    defaultValue={selectedInvoice.date}
+                    value={formDate}
+                    onChange={(event) => setFormDate(event.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -729,7 +861,9 @@ export default function DashboardPage() {
                   <span className="text-zinc-600">Total Amount (THB)</span>
                   <input
                     type="text"
-                    defaultValue={selectedInvoice.amount}
+                    value={formAmount}
+                    onChange={(event) => setFormAmount(event.target.value)}
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -737,18 +871,16 @@ export default function DashboardPage() {
                 <label className="block text-sm">
                   <span className="text-zinc-600">Tax Category</span>
                   <select
-                    defaultValue={selectedInvoice.category}
+                    value={formCategory}
+                    onChange={(event) => setFormCategory(event.target.value)}
+                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   >
-                    <option>Office Supplies</option>
-                    <option>Travel</option>
-                    <option>Meals</option>
-                    <option>Utilities</option>
-                    <option>Internet / Phone</option>
-                    <option>Professional Services</option>
-                    <option>Rent</option>
-                    <option>Training</option>
-                    <option>Other</option>
+                    {CATEGORY_FILTER_OPTIONS.map((label) => (
+                      <option key={label} value={label}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
@@ -765,21 +897,30 @@ export default function DashboardPage() {
                     : `[!] Status: ${selectedInvoice.status}`}
                 </p>
 
+                {saveError && (
+                  <p className="text-sm text-red-600">{saveError}</p>
+                )}
+                {saveMessage && (
+                  <p className="text-sm text-emerald-700">{saveMessage}</p>
+                )}
+
                 <div className="flex justify-between pt-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedInvoice(null)}
+                    onClick={closeReviewModal}
                     className="rounded-lg border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
                   >
                     Cancel
                   </button>
-                  {/* Step F3: ใบซ้ำยังไม่ให้ Save (ยังไม่มี PATCH จริงอยู่แล้ว) */}
                   <button
                     type="button"
-                    disabled={selectedInvoice.status === "DUPLICATE"}
+                    onClick={() => void handleSave()}
+                    disabled={
+                      isSaving || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Save Invoice
+                    {isSaving ? "Saving..." : "Save Invoice"}
                   </button>
                 </div>
               </div>
