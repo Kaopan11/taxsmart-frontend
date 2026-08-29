@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
@@ -13,7 +13,6 @@ import {
 import { ensureSession, fetchMe, logoutRequest } from "@/lib/auth-api";
 import {
   getStoredUser,
-  isAdminRole,
   type StoredAuthUser,
 } from "@/lib/auth-storage";
 import {
@@ -659,40 +658,11 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
-            TS
-          </div>
-          <span className="text-lg font-semibold">TaxSmart AI</span>
-        </Link>
-        <div className="flex items-center gap-3 text-sm">
-          {/* P3: ลิงก์ Admin โชว์เฉพาะ ADMIN */}
-          {isAdminRole(authUser?.role) && (
-            <Link
-              href="/admin"
-              className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-800 hover:bg-emerald-100"
-            >
-              Admin
-            </Link>
-          )}
-          <span className="text-zinc-600">
-            {authUser?.fullName || authUser?.email || "User"}
-          </span>
-          {authUser?.role && (
-            <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
-              {authUser.role}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        variant="dashboard"
+        user={authUser}
+        onLogout={handleLogout}
+      />
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         {/* ---------- Step 5: การ์ดจาก DB ---------- */}

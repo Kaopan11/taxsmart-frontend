@@ -72,3 +72,12 @@ export const DASHBOARD_COPY = {
   uploadOcrFailed: "OCR failed — try uploading again or check the file",
   saved: "Saved",
 } as const;
+
+/** Ticket 06: ข้อความ navbar ร่วม (Dashboard / Admin / Log out) */
+export const NAV_COPY = {
+  brand: "TaxSmart AI",
+  dashboard: "Dashboard",
+  admin: "Admin",
+  logout: "Log out",
+  defaultUser: "User",
+} as const;

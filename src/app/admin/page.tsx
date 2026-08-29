@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listAdminUsers, type AdminUserRow } from "@/lib/admin-api";
@@ -83,32 +83,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
-            TS
-          </div>
-          <span className="text-lg font-semibold">TaxSmart AI</span>
-        </Link>
-        <div className="flex items-center gap-3 text-sm">
-          <Link href="/dashboard" className="text-zinc-600 hover:text-zinc-900">
-            Dashboard
-          </Link>
-          <span className="text-zinc-600">
-            {authUser?.fullName || authUser?.email}
-          </span>
-          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
-            ADMIN
-          </span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+      <AppHeader variant="admin" user={authUser} onLogout={handleLogout} />
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         <div>
