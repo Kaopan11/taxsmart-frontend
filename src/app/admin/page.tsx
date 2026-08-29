@@ -1,6 +1,8 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
+import { AdminAuthSkeleton } from "@/components/skeletons/AdminAuthSkeleton";
+import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listAdminUsers, type AdminUserRow } from "@/lib/admin-api";
@@ -74,11 +76,7 @@ export default function AdminPage() {
   }
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        {LOADING.checkingAdminAccess}
-      </div>
-    );
+    return <AdminAuthSkeleton />;
   }
 
   return (
@@ -109,13 +107,19 @@ export default function AdminPage() {
                 <th className="px-4 py-3 font-medium">Created</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody aria-busy={loading || undefined}>
               {loading && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                    {LOADING.loadingUsers}
-                  </td>
-                </tr>
+                <TableBodySkeleton
+                  rows={6}
+                  columnCount={4}
+                  loadingLabel={LOADING.loadingUsers}
+                  columnWidths={[
+                    "h-4 w-full max-w-[12rem]",
+                    "h-4 w-full max-w-[8rem]",
+                    "h-5 w-14 rounded-md",
+                    "h-4 w-20",
+                  ]}
+                />
               )}
               {!loading && users.length === 0 && (
                 <tr>

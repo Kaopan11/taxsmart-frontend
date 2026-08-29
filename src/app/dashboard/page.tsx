@@ -1,6 +1,9 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
+import { DashboardAuthSkeleton } from "@/components/skeletons/DashboardAuthSkeleton";
+import { SummaryCardsSkeleton } from "@/components/skeletons/SummaryCardsSkeleton";
+import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useEffect,
@@ -260,6 +263,8 @@ export default function DashboardPage() {
 
   // รายการเต็มสำหรับสรุปการ์ด (ไม่ใส่ filter)
   const [allInvoices, setAllInvoices] = useState<DashboardInvoice[]>([]);
+  /** Ticket 07: โหลดการ์ดสรุปครั้งแรก — แสดง skeleton แทน 0 */
+  const [isLoadingSummary, setIsLoadingSummary] = useState(true);
 
   // P2/P3: session + ดึง role ล่าสุดจาก GET /auth/me
   useEffect(() => {
@@ -317,6 +322,7 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function loadSummary() {
+      setIsLoadingSummary(true);
       try {
         const rows = await listInvoices();
         if (cancelled) return;
@@ -324,6 +330,10 @@ export default function DashboardPage() {
       } catch (error) {
         if (error instanceof Error && error.message === "UNAUTHORIZED") {
           handleUnauthorized();
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSummary(false);
         }
       }
     }
@@ -733,11 +743,7 @@ export default function DashboardPage() {
   }
 
   if (!authReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        {LOADING.checkingSession}
-      </div>
-    );
+    return <DashboardAuthSkeleton />;
   }
 
   return (
@@ -750,28 +756,32 @@ export default function DashboardPage() {
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         {/* ---------- Step 5: การ์ดจาก DB ---------- */}
-        <section className="grid gap-4 sm:grid-cols-3">
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Total Expenses</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatBaht(summary.totalExpenses)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-400">COMPLETED only</p>
-          </article>
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Tax Savings</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatBaht(summary.taxSavings)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-400">Estimate 15%</p>
-          </article>
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Total Invoices</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {summary.totalCount} Items
-            </p>
-          </article>
-        </section>
+        {isLoadingSummary ? (
+          <SummaryCardsSkeleton />
+        ) : (
+          <section className="grid gap-4 sm:grid-cols-3">
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Total Expenses</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatBaht(summary.totalExpenses)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">COMPLETED only</p>
+            </article>
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Tax Savings</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatBaht(summary.taxSavings)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">Estimate 15%</p>
+            </article>
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Total Invoices</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {summary.totalCount} Items
+              </p>
+            </article>
+          </section>
+        )}
 
         <section
           id="upload-zone"
@@ -881,16 +891,24 @@ export default function DashboardPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100">
+                <tbody
+                  className="divide-y divide-zinc-100"
+                  aria-busy={isLoadingList || undefined}
+                >
                   {isLoadingList && (
-                    <tr>
-                      <td
-                        colSpan={INVOICE_TABLE_COL_COUNT}
-                        className="px-4 py-8 text-center text-zinc-500"
-                      >
-                        {LOADING.loadingInvoices}
-                      </td>
-                    </tr>
+                    <TableBodySkeleton
+                      rows={5}
+                      columnCount={INVOICE_TABLE_COL_COUNT}
+                      columnWidths={[
+                        "h-4 w-20",
+                        "h-4 w-full max-w-[10rem]",
+                        "h-4 w-24",
+                        "h-4 w-28 font-mono",
+                        "h-4 w-16",
+                        "h-5 w-16 rounded-full",
+                        "h-7 w-12 rounded-md mx-auto max-w-[3rem]",
+                      ]}
+                    />
                   )}
 
                   {!isLoadingList && allInvoices.length === 0 && !listError && (

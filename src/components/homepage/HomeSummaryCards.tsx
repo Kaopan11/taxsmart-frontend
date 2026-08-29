@@ -1,5 +1,6 @@
+import { SummaryCardsSkeleton } from "@/components/skeletons/SummaryCardsSkeleton";
 import { formatBaht, type InvoiceSummary } from "@/lib/invoice-display";
-import { HOMEPAGE_COPY, LOADING } from "@/lib/ui-copy";
+import { HOMEPAGE_COPY } from "@/lib/ui-copy";
 
 type HomeSummaryCardsProps = {
   summary: InvoiceSummary | null;
@@ -7,22 +8,12 @@ type HomeSummaryCardsProps = {
 };
 
 /**
- * Phase B: การ์ดสรุป 3 ใบ — ข้อมูลเดียวกับ dashboard (เบากว่า ไม่มี filter)
+ * Phase B + Ticket 07: การ์ดสรุป homepage hub — skeleton ร่วมกับ Dashboard
  */
 export function HomeSummaryCards({ summary, loading }: HomeSummaryCardsProps) {
   if (loading) {
     return (
-      <section
-        className="mx-auto grid max-w-6xl gap-4 px-6 py-10 sm:grid-cols-3"
-        aria-label={LOADING.loadingInvoices}
-      >
-        {[0, 1, 2].map((key) => (
-          <div
-            key={key}
-            className="h-28 animate-pulse rounded-xl border border-zinc-200 bg-white"
-          />
-        ))}
-      </section>
+      <SummaryCardsSkeleton className="mx-auto grid max-w-6xl gap-4 px-6 py-10 sm:grid-cols-3" />
     );
   }
 

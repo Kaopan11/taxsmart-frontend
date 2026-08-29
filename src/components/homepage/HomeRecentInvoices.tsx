@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { SkeletonBar } from "@/components/skeletons/SkeletonBar";
+import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import type { HomeInvoiceRow } from "@/lib/invoice-display";
 import {
   ACTION_COPY,
@@ -30,9 +32,34 @@ type HomeRecentInvoicesProps = {
 export function HomeRecentInvoices({ rows, loading }: HomeRecentInvoicesProps) {
   if (loading) {
     return (
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <div className="h-6 w-40 animate-pulse rounded bg-zinc-200" />
-        <div className="mt-6 h-48 animate-pulse rounded-xl border border-zinc-200 bg-white" />
+      <section className="mx-auto max-w-6xl px-6 pb-16" aria-busy="true">
+        <SkeletonBar className="h-6 w-40" />
+        <div className="mt-6 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-zinc-200 bg-zinc-50" aria-hidden>
+              <tr>
+                {[0, 1, 2, 3, 4].map((key) => (
+                  <th key={key} className="px-4 py-3">
+                    <SkeletonBar className="h-3 w-14" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody aria-label={LOADING.loadingInvoices}>
+              <TableBodySkeleton
+                rows={3}
+                columnCount={5}
+                columnWidths={[
+                  "h-4 w-full max-w-[10rem]",
+                  "h-4 w-20",
+                  "h-4 w-16 ml-auto",
+                  "h-5 w-16 rounded-full",
+                  "h-7 w-12 rounded-md mx-auto",
+                ]}
+              />
+            </tbody>
+          </table>
+        </div>
       </section>
     );
   }
