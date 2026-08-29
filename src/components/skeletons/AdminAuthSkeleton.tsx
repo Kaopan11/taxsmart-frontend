@@ -40,8 +40,8 @@ export function AdminAuthSkeleton() {
                 columnCount={4}
                 loadingLabel={LOADING.loadingUsers}
                 columnWidths={[
-                  "h-4 w-full max-w-[12rem]",
-                  "h-4 w-full max-w-[8rem]",
+                  "h-4 w-full max-w-48",
+                  "h-4 w-full max-w-32",
                   "h-5 w-14 rounded-md",
                   "h-4 w-20",
                 ]}

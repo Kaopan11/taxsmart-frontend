@@ -27,7 +27,7 @@ export function TableBodySkeleton({
             <td key={colIndex} className="px-4 py-3">
               <SkeletonBar
                 className={
-                  columnWidths?.[colIndex] ?? "h-4 w-full max-w-[8rem]"
+                  columnWidths?.[colIndex] ?? "h-4 w-full max-w-32"
                 }
               />
             </td>

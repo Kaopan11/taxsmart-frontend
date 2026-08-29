@@ -50,7 +50,7 @@ export function HomeRecentInvoices({ rows, loading }: HomeRecentInvoicesProps) {
                 rows={3}
                 columnCount={5}
                 columnWidths={[
-                  "h-4 w-full max-w-[10rem]",
+                  "h-4 w-full max-w-40",
                   "h-4 w-20",
                   "h-4 w-16 ml-auto",
                   "h-5 w-16 rounded-full",

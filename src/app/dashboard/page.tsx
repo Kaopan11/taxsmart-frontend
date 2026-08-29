@@ -901,12 +901,12 @@ export default function DashboardPage() {
                       columnCount={INVOICE_TABLE_COL_COUNT}
                       columnWidths={[
                         "h-4 w-20",
-                        "h-4 w-full max-w-[10rem]",
+                        "h-4 w-full max-w-40",
                         "h-4 w-24",
                         "h-4 w-28 font-mono",
                         "h-4 w-16",
                         "h-5 w-16 rounded-full",
-                        "h-7 w-12 rounded-md mx-auto max-w-[3rem]",
+                        "h-7 w-12 rounded-md mx-auto max-w-12",
                       ]}
                     />
                   )}
