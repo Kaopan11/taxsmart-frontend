@@ -6,10 +6,10 @@ import { useEffect, useState } from "react";
 import { listAdminUsers, type AdminUserRow } from "@/lib/admin-api";
 import { ensureSession, fetchMe, logoutRequest } from "@/lib/auth-api";
 import { isAdminRole, type StoredAuthUser } from "@/lib/auth-storage";
+import { ADMIN_COPY, EMPTY_CELL, LOADING } from "@/lib/ui-copy";
 
 /**
  * P3: หน้า Admin — เห็นได้เฉพาะ role === ADMIN
- * เรียก GET /admin/users
  */
 export default function AdminPage() {
   const router = useRouter();
@@ -76,7 +76,7 @@ export default function AdminPage() {
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        Checking admin access…
+        {LOADING.checkingAdminAccess}
       </div>
     );
   }
@@ -114,7 +114,7 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            All registered users (GET /admin/users)
+            {ADMIN_COPY.pageSubtitle}
           </p>
         </div>
 
@@ -138,7 +138,7 @@ export default function AdminPage() {
               {loading && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                    Loading…
+                    {LOADING.loadingUsers}
                   </td>
                 </tr>
               )}
@@ -153,7 +153,7 @@ export default function AdminPage() {
                 users.map((user) => (
                   <tr key={user.id} className="border-t border-zinc-100">
                     <td className="px-4 py-3">{user.email}</td>
-                    <td className="px-4 py-3">{user.fullName ?? "—"}</td>
+                    <td className="px-4 py-3">{user.fullName ?? EMPTY_CELL}</td>
                     <td className="px-4 py-3">
                       <span
                         className={

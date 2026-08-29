@@ -17,6 +17,14 @@ import {
   type StoredAuthUser,
 } from "@/lib/auth-storage";
 import {
+  DASHBOARD_COPY,
+  EMPTY_CELL,
+  formatInvoiceStatus,
+  formatStatusFilterLabel,
+  getInvoiceStatusHint,
+  LOADING,
+} from "@/lib/ui-copy";
+import {
   fetchInvoiceFileBlob,
   getInvoiceById,
   listInvoices,
@@ -156,9 +164,9 @@ function mapApiToDashboard(
   return {
     id: api.id,
     date: formatDate(api.issueDate),
-    storeName: api.merchantName ?? "—",
-    taxId: api.merchantTaxId ?? "—",
-    invoiceNumber: api.invoiceNumber ?? "—",
+    storeName: api.merchantName ?? EMPTY_CELL,
+    taxId: api.merchantTaxId ?? EMPTY_CELL,
+    invoiceNumber: api.invoiceNumber ?? EMPTY_CELL,
     amount: formatAmount(api.totalAmount),
     amountNumber: parseAmount(api.totalAmount),
     status: api.ocrStatus,
@@ -182,7 +190,7 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status]}`}
     >
-      {status}
+      {formatInvoiceStatus(status)}
     </span>
   );
 }
@@ -419,11 +427,11 @@ export default function DashboardPage() {
       } else if (done.ocrStatus === "DUPLICATE") {
         setSelectedInvoice(mapped);
         setUploadMessage(
-          "Duplicate receipt — same tax ID and invoice number already exist",
+          DASHBOARD_COPY.uploadDuplicate,
         );
       } else {
         setUploadError(
-          done.rawOcrData?.error ?? "OCR failed — check backend logs",
+          done.rawOcrData?.error ?? DASHBOARD_COPY.uploadOcrFailed,
         );
         setUploadMessage(null);
       }
@@ -627,7 +635,7 @@ export default function DashboardPage() {
       setFormDate(displayToFormValue(row.date));
       setFormAmount(displayToFormValue(row.amount));
       setFormCategory(row.category || "Other");
-      setSaveMessage("Saved");
+      setSaveMessage(DASHBOARD_COPY.saved);
     } catch (error) {
       if (error instanceof Error && error.message === "UNAUTHORIZED") {
         handleUnauthorized();
@@ -644,7 +652,7 @@ export default function DashboardPage() {
   if (!authReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        Checking session…
+        {LOADING.checkingSession}
       </div>
     );
   }
@@ -736,7 +744,7 @@ export default function DashboardPage() {
             disabled={isUploading}
             className="mt-6 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isUploading ? "Processing..." : "Choose File"}
+            {isUploading ? LOADING.processing : "Choose File"}
           </button>
 
           {uploadMessage && (
@@ -778,7 +786,7 @@ export default function DashboardPage() {
             >
               {STATUS_FILTER_OPTIONS.map((value) => (
                 <option key={value} value={value}>
-                  {value === "all" ? "Status: All" : value}
+                  {formatStatusFilterLabel(value)}
                 </option>
               ))}
             </select>
@@ -810,7 +818,7 @@ export default function DashboardPage() {
                         colSpan={6}
                         className="px-4 py-8 text-center text-zinc-500"
                       >
-                        Loading invoices from database...
+                        {LOADING.loadingInvoices}
                       </td>
                     </tr>
                   )}
@@ -821,7 +829,7 @@ export default function DashboardPage() {
                         colSpan={6}
                         className="px-4 py-8 text-center text-zinc-500"
                       >
-                        No invoices yet — upload a receipt to get started
+                        {DASHBOARD_COPY.emptyInvoices}
                       </td>
                     </tr>
                   )}
@@ -835,7 +843,7 @@ export default function DashboardPage() {
                           colSpan={6}
                           className="px-4 py-8 text-center text-zinc-500"
                         >
-                          No invoices match your search / filters
+                          {DASHBOARD_COPY.noFilterMatch}
                         </td>
                       </tr>
                     )}
@@ -906,7 +914,7 @@ export default function DashboardPage() {
                 <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-lg border border-dashed border-zinc-300 bg-white">
                   {isLoadingPreview && (
                     <p className="px-4 text-center text-sm text-zinc-500">
-                      Loading preview…
+                      {LOADING.loadingPreview}
                     </p>
                   )}
                   {!isLoadingPreview && previewError && (
@@ -939,7 +947,7 @@ export default function DashboardPage() {
                     !previewError &&
                     !modalPreviewUrl && (
                       <p className="px-4 text-center text-sm text-zinc-400">
-                        No receipt file available
+                        {DASHBOARD_COPY.noPreview}
                       </p>
                     )}
                 </div>
@@ -1025,7 +1033,7 @@ export default function DashboardPage() {
                   </select>
                 </label>
 
-                {/* Step F3: ข้อความสถานะ — ใบซ้ำต้องชัดว่าไม่ใช่ error ทั่วไป */}
+                {/* Ticket 01: คำอธิบาย status แบบ user-facing (ไม่โชว์ enum ดิบ) */}
                 <p
                   className={
                     selectedInvoice.status === "DUPLICATE"
@@ -1033,9 +1041,7 @@ export default function DashboardPage() {
                       : "text-sm text-amber-700"
                   }
                 >
-                  {selectedInvoice.status === "DUPLICATE"
-                    ? "[!] Status: DUPLICATE — ใบนี้ซ้ำกับที่มีในระบบ (เลขผู้เสียภาษี + เลขที่บิล)"
-                    : `[!] Status: ${selectedInvoice.status}`}
+                  {getInvoiceStatusHint(selectedInvoice.status)}
                 </p>
 
                 {saveError && (
