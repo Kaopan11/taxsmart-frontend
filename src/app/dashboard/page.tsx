@@ -17,6 +17,7 @@ import {
   type StoredAuthUser,
 } from "@/lib/auth-storage";
 import {
+  fetchInvoiceFileBlob,
   getInvoiceById,
   listInvoices,
   pollInvoiceUntilDone,
@@ -45,8 +46,12 @@ type DashboardInvoice = {
   amountNumber: number | null;
   status: InvoiceStatus;
   category: string;
-  /** URL รูป preview จากไฟล์ที่เลือก (blob:) — มีเฉพาะตอนอัปโหลดจาก browser */
+  /** path จาก API — บอกว่ามีไฟล์บน server */
+  fileUrl?: string | null;
+  /** blob: จาก upload session นี้ — ใช้ก่อน fetch /file */
   previewUrl?: string;
+  /** ใช้เลือก <img> vs <iframe> ตอน preview จาก upload */
+  previewIsPdf?: boolean;
 };
 
 // แปลงหมวดจาก Gemini (OFFICE_SUPPLIES) เป็นข้อความในฟอร์ม
@@ -134,10 +139,19 @@ function parseFormDate(raw: string): string | undefined {
   return undefined;
 }
 
+/** จาก fileUrl หรือ mime ว่าเป็น PDF หรือไม่ */
+function isPdfPreview(fileUrl?: string | null, mime?: string): boolean {
+  if (mime === "application/pdf") return true;
+  return Boolean(fileUrl?.toLowerCase().endsWith(".pdf"));
+}
+
 /** แปลงคำตอบ API → แถวในตาราง */
 function mapApiToDashboard(
   api: InvoiceApiResponse,
-  previewUrl?: string,
+  options?: {
+    previewUrl?: string;
+    previewIsPdf?: boolean;
+  },
 ): DashboardInvoice {
   return {
     id: api.id,
@@ -148,9 +162,10 @@ function mapApiToDashboard(
     amount: formatAmount(api.totalAmount),
     amountNumber: parseAmount(api.totalAmount),
     status: api.ocrStatus,
-    // ใช้คอลัมน์ category ก่อน ถ้าไม่มีค่อยอ่านจาก rawOcrData
     category: formatCategory(api.category ?? api.rawOcrData?.category),
-    previewUrl,
+    fileUrl: api.fileUrl ?? null,
+    previewUrl: options?.previewUrl,
+    previewIsPdf: options?.previewIsPdf,
   };
 }
 
@@ -175,6 +190,8 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
 export default function DashboardPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** blob URL ที่ FE สร้างจาก GET /file — ต้อง revoke ตอนปิด modal */
+  const serverPreviewUrlRef = useRef<string | null>(null);
 
   // P1: รอเช็ก token ก่อนโชว์ dashboard
   const [authReady, setAuthReady] = useState(false);
@@ -196,6 +213,12 @@ export default function DashboardPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // Ticket B: preview ใน modal (แยกจาก previewUrl บนแถวตาราง)
+  const [modalPreviewUrl, setModalPreviewUrl] = useState<string | null>(null);
+  const [modalPreviewIsPdf, setModalPreviewIsPdf] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -383,7 +406,10 @@ export default function DashboardPage() {
       setUploadMessage("OCR processing... polling status");
 
       const done = await pollInvoiceUntilDone(invoiceId);
-      const mapped = mapApiToDashboard(done, previewUrl);
+      const mapped = mapApiToDashboard(done, {
+        previewUrl,
+        previewIsPdf: file.type === "application/pdf",
+      });
       upsertInvoice(mapped);
 
       // Step F2: แยกผลหลัง OCR จบ — DUPLICATE ไม่ใช่ error
@@ -437,11 +463,98 @@ export default function DashboardPage() {
   async function openInvoice(invoice: DashboardInvoice) {
     try {
       const fresh = await getInvoiceById(invoice.id);
-      setSelectedInvoice(mapApiToDashboard(fresh, invoice.previewUrl));
+      setSelectedInvoice(
+        mapApiToDashboard(fresh, {
+          previewUrl: invoice.previewUrl,
+          previewIsPdf: invoice.previewIsPdf,
+        }),
+      );
     } catch {
       setSelectedInvoice(invoice);
     }
   }
+
+  /** ล้าง blob URL ที่สร้างจาก GET /file */
+  function revokeServerPreviewUrl() {
+    if (serverPreviewUrlRef.current) {
+      URL.revokeObjectURL(serverPreviewUrlRef.current);
+      serverPreviewUrlRef.current = null;
+    }
+  }
+
+  function resetModalPreview() {
+    revokeServerPreviewUrl();
+    setModalPreviewUrl(null);
+    setModalPreviewIsPdf(false);
+    setIsLoadingPreview(false);
+    setPreviewError(null);
+  }
+
+  // Ticket B: โหลด preview เมื่อเปิด modal
+  useEffect(() => {
+    if (!selectedInvoice) {
+      resetModalPreview();
+      return;
+    }
+
+    // upload session — มี blob: อยู่แล้ว ไม่ต้อง fetch /file
+    if (selectedInvoice.previewUrl?.startsWith("blob:")) {
+      revokeServerPreviewUrl();
+      setModalPreviewUrl(selectedInvoice.previewUrl);
+      setModalPreviewIsPdf(
+        selectedInvoice.previewIsPdf ??
+          isPdfPreview(selectedInvoice.fileUrl),
+      );
+      setIsLoadingPreview(false);
+      setPreviewError(null);
+      return;
+    }
+
+    if (!selectedInvoice.fileUrl) {
+      resetModalPreview();
+      return;
+    }
+
+    let cancelled = false;
+    revokeServerPreviewUrl();
+    setModalPreviewUrl(null);
+    setIsLoadingPreview(true);
+    setPreviewError(null);
+
+    void fetchInvoiceFileBlob(selectedInvoice.id)
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        serverPreviewUrlRef.current = url;
+        setModalPreviewUrl(url);
+        setModalPreviewIsPdf(
+          isPdfPreview(selectedInvoice.fileUrl, blob.type),
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (error instanceof Error && error.message === "UNAUTHORIZED") {
+          handleUnauthorized();
+          return;
+        }
+        setPreviewError(
+          error instanceof Error ? error.message : "Failed to load preview",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingPreview(false);
+      });
+
+    return () => {
+      cancelled = true;
+      revokeServerPreviewUrl();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- โหลดใหม่เมื่อเปลี่ยน invoice
+  }, [
+    selectedInvoice?.id,
+    selectedInvoice?.previewUrl,
+    selectedInvoice?.fileUrl,
+  ]);
 
   useEffect(() => {
     if (!selectedInvoice) return;
@@ -458,6 +571,7 @@ export default function DashboardPage() {
   }, [selectedInvoice?.id]);
 
   function closeReviewModal() {
+    resetModalPreview();
     setSelectedInvoice(null);
     setSaveError(null);
     setSaveMessage(null);
@@ -501,7 +615,10 @@ export default function DashboardPage() {
 
     try {
       const updated = await updateInvoice(selectedInvoice.id, body);
-      const row = mapApiToDashboard(updated, selectedInvoice.previewUrl);
+      const row = mapApiToDashboard(updated, {
+        previewUrl: selectedInvoice.previewUrl,
+        previewIsPdf: selectedInvoice.previewIsPdf,
+      });
       upsertInvoice(row);
       setSelectedInvoice(row);
       setFormStoreName(displayToFormValue(row.storeName));
@@ -787,20 +904,44 @@ export default function DashboardPage() {
                   Image Preview
                 </p>
                 <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-lg border border-dashed border-zinc-300 bg-white">
-                  {selectedInvoice.previewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedInvoice.previewUrl}
-                      alt="Receipt preview"
-                      className="max-h-80 w-full object-contain"
-                    />
-                  ) : (
-                    <p className="px-4 text-center text-sm text-zinc-400">
-                      Original Receipt Image
-                      <br />
-                      (ไม่มี preview ใน browser — ยังไม่เสิร์ฟไฟล์จาก server)
+                  {isLoadingPreview && (
+                    <p className="px-4 text-center text-sm text-zinc-500">
+                      Loading preview…
                     </p>
                   )}
+                  {!isLoadingPreview && previewError && (
+                    <p className="px-4 text-center text-sm text-red-600">
+                      {previewError}
+                    </p>
+                  )}
+                  {!isLoadingPreview &&
+                    !previewError &&
+                    modalPreviewUrl &&
+                    modalPreviewIsPdf && (
+                      <iframe
+                        src={modalPreviewUrl}
+                        title="Receipt preview"
+                        className="h-80 w-full"
+                      />
+                    )}
+                  {!isLoadingPreview &&
+                    !previewError &&
+                    modalPreviewUrl &&
+                    !modalPreviewIsPdf && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={modalPreviewUrl}
+                        alt="Receipt preview"
+                        className="max-h-80 w-full object-contain"
+                      />
+                    )}
+                  {!isLoadingPreview &&
+                    !previewError &&
+                    !modalPreviewUrl && (
+                      <p className="px-4 text-center text-sm text-zinc-400">
+                        No receipt file available
+                      </p>
+                    )}
                 </div>
               </div>
 

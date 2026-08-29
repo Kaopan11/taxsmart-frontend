@@ -20,6 +20,8 @@ export type UploadResponse = {
 export type InvoiceApiResponse = {
   id: string;
   ocrStatus: ApiOcrStatus;
+  /** path ภายใน server (uploads/uuid.jpg) — ใช้ยืนยันว่ามีไฟล์ ไม่ใช่ URL เปิดตรง */
+  fileUrl?: string | null;
   merchantName: string | null;
   merchantTaxId: string | null;
   invoiceNumber: string | null;
@@ -63,6 +65,16 @@ async function assertOk(response: Response, label: string) {
     // ใช้ข้อความดิบถ้าไม่ใช่ JSON
   }
   throw new Error(`${label} failed (${response.status}): ${detail}`);
+}
+
+/** สำหรับ binary /file — ไม่ parse JSON error */
+async function assertFileOk(response: Response, label: string) {
+  if (response.ok) return;
+  if (response.status === 401) {
+    throw new Error("UNAUTHORIZED");
+  }
+  const text = await response.text();
+  throw new Error(`${label} failed (${response.status}): ${text}`);
 }
 
 export type UpdateInvoiceBody = {
@@ -154,4 +166,14 @@ export async function updateInvoice(
   });
   await assertOk(response, "Update invoice");
   return response.json() as Promise<InvoiceApiResponse>;
+}
+
+/**
+ * Ticket B: โหลดใบเสร็จจาก GET /invoices/:id/file
+ * ใช้ apiFetch (JWT) แล้วคืน Blob — ห้ามใช้ <img src="/uploads/...">
+ */
+export async function fetchInvoiceFileBlob(id: string): Promise<Blob> {
+  const response = await apiFetch(`${API_URL}/invoices/${id}/file`);
+  await assertFileOk(response, "Fetch invoice file");
+  return response.blob();
 }
