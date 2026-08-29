@@ -1,7 +1,7 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -199,6 +199,7 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** blob URL ที่ FE สร้างจาก GET /file — ต้อง revoke ตอนปิด modal */
   const serverPreviewUrlRef = useRef<string | null>(null);
@@ -319,6 +320,29 @@ export default function DashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- P1: โหลดครั้งเดียวหลัง auth พร้อม
   }, [authReady]);
+
+  // Phase B: เปิด modal จาก homepage (?invoice=id)
+  useEffect(() => {
+    if (!authReady) return;
+
+    const invoiceId = searchParams.get("invoice");
+    if (!invoiceId) return;
+
+    let cancelled = false;
+
+    void getInvoiceById(invoiceId)
+      .then((api) => {
+        if (cancelled) return;
+        setSelectedInvoice(mapApiToDashboard(api));
+      })
+      .catch(() => {
+        // ลิงก์เสีย — อยู่ dashboard ปกติ
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, searchParams]);
 
   // Step B (server filter): โหลดตารางตาม q / status / category จาก Nest
   useEffect(() => {
@@ -693,6 +717,7 @@ export default function DashboardPage() {
         </section>
 
         <section
+          id="upload-zone"
           className="rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onDrop}

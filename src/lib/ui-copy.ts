@@ -105,11 +105,45 @@ export function viewInvoiceAriaLabel(storeName: string): string {
   return `View invoice for ${storeName}`;
 }
 
-/** Ticket 06: ข้อความ navbar ร่วม (Dashboard / Admin / Log out) */
+/** Ticket 06 + 03: ข้อความ navbar ร่วม (Dashboard / Admin / Log out / guest CTA) */
 export const NAV_COPY = {
   brand: "TaxSmart AI",
   dashboard: "Dashboard",
   admin: "Admin",
   logout: "Log out",
   defaultUser: "User",
+  /** หน้าแรก — guest ยังไม่ login */
+  signIn: "Sign in",
+  getStarted: "Get started",
+  /** จอเล็ก — เปิด/ปิดเมนู nav */
+  menu: "Menu",
+  menuAria: "Open navigation menu",
+} as const;
+
+/** Phase B: หน้าแรกหลัง login — Welcome Hub */
+export const HOMEPAGE_COPY = {
+  welcome: (name: string) => `Welcome back, ${name}`,
+  loggedInSub:
+    "Review receipts, upload new ones, or jump to your full dashboard.",
+  goToDashboard: "Go to Dashboard",
+  uploadReceipt: "Upload receipt",
+  /** chip สถานะใต้ headline */
+  processingChip: (count: number) =>
+    `${count} receipt${count === 1 ? "" : "s"} processing`,
+  duplicateChip: (count: number) =>
+    `${count} duplicate${count === 1 ? "" : "s"} need attention`,
+  failedChip: (count: number) =>
+    `${count} failed OCR — review in dashboard`,
+  summaryTotalExpenses: "Total Expenses",
+  summaryTotalExpensesHint: "COMPLETED only",
+  summaryTaxSavings: "Tax Savings",
+  summaryTaxSavingsHint: "Estimate 15%",
+  summaryTotalInvoices: "Total Invoices",
+  recentTitle: "Recent receipts",
+  recentEmpty: "No receipts yet — upload your first one from the dashboard.",
+  seeAllDashboard: "See all in Dashboard",
+  closingLoggedInTitle: "Your receipts are ready in the dashboard",
+  closingLoggedInSub:
+    "Upload, review OCR results, and track expenses in one place.",
+  closingLoggedInCta: "Open Dashboard",
 } as const;
