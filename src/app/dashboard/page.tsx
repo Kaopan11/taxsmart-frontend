@@ -16,12 +16,15 @@ import {
   type StoredAuthUser,
 } from "@/lib/auth-storage";
 import {
+  ACTION_COPY,
   DASHBOARD_COPY,
   EMPTY_CELL,
   formatInvoiceStatus,
   formatStatusFilterLabel,
   getInvoiceStatusHint,
+  getSaveDisabledHint,
   LOADING,
+  viewInvoiceAriaLabel,
 } from "@/lib/ui-copy";
 import {
   fetchInvoiceFileBlob,
@@ -778,7 +781,9 @@ export default function DashboardPage() {
                     <th className="px-4 py-3 font-medium">Tax ID</th>
                     <th className="px-4 py-3 font-medium">Amount</th>
                     <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium text-center">Act</th>
+                    <th className="px-4 py-3 font-medium text-center">
+                      {ACTION_COPY.tableActions}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
@@ -838,10 +843,10 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => void openInvoice(invoice)}
-                            className="rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100"
-                            aria-label={`View invoice ${invoice.storeName}`}
+                            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100"
+                            aria-label={viewInvoiceAriaLabel(invoice.storeName)}
                           >
-                            [ &gt; ]
+                            {ACTION_COPY.viewInvoice}
                           </button>
                         </td>
                       </tr>
@@ -866,13 +871,14 @@ export default function DashboardPage() {
               <h2 id="review-title" className="text-lg font-semibold">
                 Review & Verify Invoice Data
               </h2>
+              {/* Ticket 02: ปุ่ม Close ชัด — ไม่ใช้ [ x ] placeholder */}
               <button
                 type="button"
                 onClick={closeReviewModal}
-                className="rounded-md px-2 py-1 text-zinc-500 hover:bg-zinc-100"
-                aria-label="Close"
+                className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100"
+                aria-label={ACTION_COPY.closeModalAria}
               >
-                [ x ]
+                {ACTION_COPY.close}
               </button>
             </div>
 
@@ -1021,24 +1027,41 @@ export default function DashboardPage() {
                   <p className="text-sm text-emerald-700">{saveMessage}</p>
                 )}
 
-                <div className="flex justify-between pt-2">
+                {/* Ticket 02: บอกเหตุผลเมื่อ Save disabled (DUPLICATE / OCR ยังไม่จบ) */}
+                <div className="flex items-start justify-between gap-4 pt-2">
                   <button
                     type="button"
                     onClick={closeReviewModal}
                     className="rounded-lg border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
                   >
-                    Cancel
+                    {ACTION_COPY.cancel}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSave()}
-                    disabled={
-                      isSaving || !isSaveableStatus(selectedInvoice.status)
-                    }
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isSaving ? "Saving..." : "Save Invoice"}
-                  </button>
+                  <div className="flex flex-col items-end gap-1.5">
+                    {!isSaveableStatus(selectedInvoice.status) &&
+                      getSaveDisabledHint(selectedInvoice.status) && (
+                        <p
+                          className={
+                            selectedInvoice.status === "DUPLICATE"
+                              ? "max-w-xs text-right text-xs text-red-600"
+                              : "max-w-xs text-right text-xs text-zinc-500"
+                          }
+                        >
+                          {getSaveDisabledHint(selectedInvoice.status)}
+                        </p>
+                      )}
+                    <button
+                      type="button"
+                      onClick={() => void handleSave()}
+                      disabled={
+                        isSaving || !isSaveableStatus(selectedInvoice.status)
+                      }
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSaving
+                        ? ACTION_COPY.saving
+                        : ACTION_COPY.saveInvoice}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

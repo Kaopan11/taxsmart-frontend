@@ -73,6 +73,38 @@ export const DASHBOARD_COPY = {
   saved: "Saved",
 } as const;
 
+/** Ticket 02: ปุ่ม action ในตาราง / modal */
+export const ACTION_COPY = {
+  tableActions: "Actions",
+  viewInvoice: "View",
+  close: "Close",
+  closeModalAria: "Close review dialog",
+  cancel: "Cancel",
+  saveInvoice: "Save invoice",
+  saving: "Saving…",
+  /** แสดงใต้ปุ่ม Save เมื่อ disabled */
+  saveDisabledDuplicate:
+    "This receipt is a duplicate — saving changes is not allowed.",
+  saveDisabledOcr:
+    "OCR is still running — you can save after processing finishes.",
+} as const;
+
+/** ข้อความสั้น ๆ ใต้ปุ่ม Save เมื่อกดไม่ได้ */
+export function getSaveDisabledHint(status: string): string | null {
+  if (status === "DUPLICATE") {
+    return ACTION_COPY.saveDisabledDuplicate;
+  }
+  if (status === "PENDING" || status === "PROCESSING") {
+    return ACTION_COPY.saveDisabledOcr;
+  }
+  return null;
+}
+
+/** aria-label สำหรับปุ่ม View ในแต่ละแถว */
+export function viewInvoiceAriaLabel(storeName: string): string {
+  return `View invoice for ${storeName}`;
+}
+
 /** Ticket 06: ข้อความ navbar ร่วม (Dashboard / Admin / Log out) */
 export const NAV_COPY = {
   brand: "TaxSmart AI",
