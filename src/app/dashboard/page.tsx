@@ -1,7 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { DashboardAuthSkeleton } from "@/components/skeletons/DashboardAuthSkeleton";
+import { SummaryCardsSkeleton } from "@/components/skeletons/SummaryCardsSkeleton";
+import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -13,9 +16,19 @@ import {
 import { ensureSession, fetchMe, logoutRequest } from "@/lib/auth-api";
 import {
   getStoredUser,
-  isAdminRole,
   type StoredAuthUser,
 } from "@/lib/auth-storage";
+import {
+  ACTION_COPY,
+  DASHBOARD_COPY,
+  EMPTY_CELL,
+  formatInvoiceStatus,
+  formatStatusFilterLabel,
+  getInvoiceStatusHint,
+  getSaveDisabledHint,
+  LOADING,
+  viewInvoiceAriaLabel,
+} from "@/lib/ui-copy";
 import {
   fetchInvoiceFileBlob,
   getInvoiceById,
@@ -79,6 +92,9 @@ const STATUS_FILTER_OPTIONS: Array<InvoiceStatus | "all"> = [
   "DUPLICATE",
 ];
 
+/** Ticket 05: จำนวนคอลัมน์ตาราง — ใช้ colSpan แถว empty/loading */
+const INVOICE_TABLE_COL_COUNT = 7;
+
 function formatCategory(raw?: string | null): string {
   if (!raw) return "Other";
   return CATEGORY_LABELS[raw] ?? raw;
@@ -139,6 +155,13 @@ function parseFormDate(raw: string): string | undefined {
   return undefined;
 }
 
+/** Ticket 04: ค่าที่ `<input type="date">` รับได้ — YYYY-MM-DD หรือว่าง */
+function toDateInputValue(value: string): string {
+  const raw = displayToFormValue(value);
+  if (!raw) return "";
+  return parseFormDate(raw) ?? "";
+}
+
 /** จาก fileUrl หรือ mime ว่าเป็น PDF หรือไม่ */
 function isPdfPreview(fileUrl?: string | null, mime?: string): boolean {
   if (mime === "application/pdf") return true;
@@ -156,9 +179,9 @@ function mapApiToDashboard(
   return {
     id: api.id,
     date: formatDate(api.issueDate),
-    storeName: api.merchantName ?? "—",
-    taxId: api.merchantTaxId ?? "—",
-    invoiceNumber: api.invoiceNumber ?? "—",
+    storeName: api.merchantName ?? EMPTY_CELL,
+    taxId: api.merchantTaxId ?? EMPTY_CELL,
+    invoiceNumber: api.invoiceNumber ?? EMPTY_CELL,
     amount: formatAmount(api.totalAmount),
     amountNumber: parseAmount(api.totalAmount),
     status: api.ocrStatus,
@@ -182,16 +205,19 @@ function StatusBadge({ status }: { status: InvoiceStatus }) {
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status]}`}
     >
-      {status}
+      {formatInvoiceStatus(status)}
     </span>
   );
 }
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** blob URL ที่ FE สร้างจาก GET /file — ต้อง revoke ตอนปิด modal */
   const serverPreviewUrlRef = useRef<string | null>(null);
+  /** Ticket 04: โฟกัสปุ่ม Close ตอนเปิด dialog */
+  const modalCloseRef = useRef<HTMLButtonElement>(null);
 
   // P1: รอเช็ก token ก่อนโชว์ dashboard
   const [authReady, setAuthReady] = useState(false);
@@ -223,6 +249,8 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Ticket 05: ไฟล์ลากอยู่เหนือ upload zone — เปลี่ยนขอบ/พื้นหลัง */
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // ---------- Step F2: ค่า filter จากแถบค้นหา ----------
   const [search, setSearch] = useState("");
@@ -235,6 +263,8 @@ export default function DashboardPage() {
 
   // รายการเต็มสำหรับสรุปการ์ด (ไม่ใส่ filter)
   const [allInvoices, setAllInvoices] = useState<DashboardInvoice[]>([]);
+  /** Ticket 07: โหลดการ์ดสรุปครั้งแรก — แสดง skeleton แทน 0 */
+  const [isLoadingSummary, setIsLoadingSummary] = useState(true);
 
   // P2/P3: session + ดึง role ล่าสุดจาก GET /auth/me
   useEffect(() => {
@@ -292,6 +322,7 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function loadSummary() {
+      setIsLoadingSummary(true);
       try {
         const rows = await listInvoices();
         if (cancelled) return;
@@ -299,6 +330,10 @@ export default function DashboardPage() {
       } catch (error) {
         if (error instanceof Error && error.message === "UNAUTHORIZED") {
           handleUnauthorized();
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSummary(false);
         }
       }
     }
@@ -309,6 +344,29 @@ export default function DashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- P1: โหลดครั้งเดียวหลัง auth พร้อม
   }, [authReady]);
+
+  // Phase B: เปิด modal จาก homepage (?invoice=id)
+  useEffect(() => {
+    if (!authReady) return;
+
+    const invoiceId = searchParams.get("invoice");
+    if (!invoiceId) return;
+
+    let cancelled = false;
+
+    void getInvoiceById(invoiceId)
+      .then((api) => {
+        if (cancelled) return;
+        setSelectedInvoice(mapApiToDashboard(api));
+      })
+      .catch(() => {
+        // ลิงก์เสีย — อยู่ dashboard ปกติ
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, searchParams]);
 
   // Step B (server filter): โหลดตารางตาม q / status / category จาก Nest
   useEffect(() => {
@@ -419,11 +477,11 @@ export default function DashboardPage() {
       } else if (done.ocrStatus === "DUPLICATE") {
         setSelectedInvoice(mapped);
         setUploadMessage(
-          "Duplicate receipt — same tax ID and invoice number already exist",
+          DASHBOARD_COPY.uploadDuplicate,
         );
       } else {
         setUploadError(
-          done.rawOcrData?.error ?? "OCR failed — check backend logs",
+          done.rawOcrData?.error ?? DASHBOARD_COPY.uploadOcrFailed,
         );
         setUploadMessage(null);
       }
@@ -451,8 +509,28 @@ export default function DashboardPage() {
     }
   }
 
+  function onDragEnter(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    if (!isUploading) {
+      setIsDragOver(true);
+    }
+  }
+
+  function onDragOverZone(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+  }
+
+  function onDragLeaveZone(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    const related = event.relatedTarget as Node | null;
+    if (!event.currentTarget.contains(related)) {
+      setIsDragOver(false);
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    setIsDragOver(false);
     if (isUploading) return;
     const file = event.dataTransfer.files?.[0];
     if (file) {
@@ -561,7 +639,7 @@ export default function DashboardPage() {
     setFormStoreName(displayToFormValue(selectedInvoice.storeName));
     setFormTaxId(displayToFormValue(selectedInvoice.taxId));
     setFormInvoiceNumber(displayToFormValue(selectedInvoice.invoiceNumber));
-    setFormDate(displayToFormValue(selectedInvoice.date));
+    setFormDate(toDateInputValue(selectedInvoice.date));
     setFormAmount(displayToFormValue(selectedInvoice.amount));
     setFormCategory(selectedInvoice.category || "Other");
     setSaveError(null);
@@ -576,6 +654,29 @@ export default function DashboardPage() {
     setSaveError(null);
     setSaveMessage(null);
   }
+
+  // Ticket 04: Esc ปิด modal — ใช้ closeReviewModal เพื่อ cleanup preview blob
+  useEffect(() => {
+    if (!selectedInvoice) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReviewModal();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ผูกกับเปิด/ปิด modal
+  }, [selectedInvoice]);
+
+  // Ticket 04: โฟกัสเข้า dialog เมื่อเปิด (a11y พื้นฐาน)
+  useEffect(() => {
+    if (selectedInvoice) {
+      modalCloseRef.current?.focus();
+    }
+  }, [selectedInvoice?.id]);
 
   async function handleSave() {
     if (!selectedInvoice || !isSaveableStatus(selectedInvoice.status)) {
@@ -624,10 +725,10 @@ export default function DashboardPage() {
       setFormStoreName(displayToFormValue(row.storeName));
       setFormTaxId(displayToFormValue(row.taxId));
       setFormInvoiceNumber(displayToFormValue(row.invoiceNumber));
-      setFormDate(displayToFormValue(row.date));
+      setFormDate(toDateInputValue(row.date));
       setFormAmount(displayToFormValue(row.amount));
       setFormCategory(row.category || "Other");
-      setSaveMessage("Saved");
+      setSaveMessage(DASHBOARD_COPY.saved);
     } catch (error) {
       if (error instanceof Error && error.message === "UNAUTHORIZED") {
         handleUnauthorized();
@@ -642,84 +743,66 @@ export default function DashboardPage() {
   }
 
   if (!authReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        Checking session…
-      </div>
-    );
+    return <DashboardAuthSkeleton />;
   }
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
-            TS
-          </div>
-          <span className="text-lg font-semibold">TaxSmart AI</span>
-        </Link>
-        <div className="flex items-center gap-3 text-sm">
-          {/* P3: ลิงก์ Admin โชว์เฉพาะ ADMIN */}
-          {isAdminRole(authUser?.role) && (
-            <Link
-              href="/admin"
-              className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-800 hover:bg-emerald-100"
-            >
-              Admin
-            </Link>
-          )}
-          <span className="text-zinc-600">
-            {authUser?.fullName || authUser?.email || "User"}
-          </span>
-          {authUser?.role && (
-            <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
-              {authUser.role}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        variant="dashboard"
+        user={authUser}
+        onLogout={handleLogout}
+      />
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         {/* ---------- Step 5: การ์ดจาก DB ---------- */}
-        <section className="grid gap-4 sm:grid-cols-3">
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Total Expenses</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatBaht(summary.totalExpenses)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-400">COMPLETED only</p>
-          </article>
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Tax Savings</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {formatBaht(summary.taxSavings)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-400">Estimate 15%</p>
-          </article>
-          <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-zinc-500">Total Invoices</p>
-            <p className="mt-2 text-2xl font-semibold">
-              {summary.totalCount} Items
-            </p>
-          </article>
-        </section>
+        {isLoadingSummary ? (
+          <SummaryCardsSkeleton />
+        ) : (
+          <section className="grid gap-4 sm:grid-cols-3">
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Total Expenses</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatBaht(summary.totalExpenses)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">COMPLETED only</p>
+            </article>
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Tax Savings</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {formatBaht(summary.taxSavings)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">Estimate 15%</p>
+            </article>
+            <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-zinc-500">Total Invoices</p>
+              <p className="mt-2 text-2xl font-semibold">
+                {summary.totalCount} Items
+              </p>
+            </article>
+          </section>
+        )}
 
         <section
-          className="rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center"
-          onDragOver={(event) => event.preventDefault()}
+          id="upload-zone"
+          className={
+            isDragOver
+              ? "rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50 px-6 py-14 text-center ring-2 ring-emerald-200 transition-colors"
+              : "rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center transition-colors"
+          }
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOverZone}
+          onDragLeave={onDragLeaveZone}
           onDrop={onDrop}
         >
           <p className="text-base font-medium">
-            Drag & Drop Receipt / Tax Invoice Image Here
+            {isDragOver
+              ? DASHBOARD_COPY.uploadDropActive
+              : DASHBOARD_COPY.uploadZoneTitle}
           </p>
-          <p className="mt-1 text-sm text-zinc-500">PNG, JPG, PDF (max 5MB)</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {DASHBOARD_COPY.uploadZoneSub}
+          </p>
 
           <input
             ref={fileInputRef}
@@ -736,7 +819,7 @@ export default function DashboardPage() {
             disabled={isUploading}
             className="mt-6 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isUploading ? "Processing..." : "Choose File"}
+            {isUploading ? LOADING.processing : DASHBOARD_COPY.chooseFile}
           </button>
 
           {uploadMessage && (
@@ -778,7 +861,7 @@ export default function DashboardPage() {
             >
               {STATUS_FILTER_OPTIONS.map((value) => (
                 <option key={value} value={value}>
-                  {value === "all" ? "Status: All" : value}
+                  {formatStatusFilterLabel(value)}
                 </option>
               ))}
             </select>
@@ -797,31 +880,55 @@ export default function DashboardPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Date</th>
                     <th className="px-4 py-3 font-medium">Store Name</th>
+                    <th className="px-4 py-3 font-medium">
+                      {DASHBOARD_COPY.tableCategory}
+                    </th>
                     <th className="px-4 py-3 font-medium">Tax ID</th>
                     <th className="px-4 py-3 font-medium">Amount</th>
                     <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium text-center">Act</th>
+                    <th className="px-4 py-3 font-medium text-center">
+                      {ACTION_COPY.tableActions}
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100">
+                <tbody
+                  className="divide-y divide-zinc-100"
+                  aria-busy={isLoadingList || undefined}
+                >
                   {isLoadingList && (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-4 py-8 text-center text-zinc-500"
-                      >
-                        Loading invoices from database...
-                      </td>
-                    </tr>
+                    <TableBodySkeleton
+                      rows={5}
+                      columnCount={INVOICE_TABLE_COL_COUNT}
+                      columnWidths={[
+                        "h-4 w-20",
+                        "h-4 w-full max-w-40",
+                        "h-4 w-24",
+                        "h-4 w-28 font-mono",
+                        "h-4 w-16",
+                        "h-5 w-16 rounded-full",
+                        "h-7 w-12 rounded-md mx-auto max-w-12",
+                      ]}
+                    />
                   )}
 
                   {!isLoadingList && allInvoices.length === 0 && !listError && (
                     <tr>
                       <td
-                        colSpan={6}
-                        className="px-4 py-8 text-center text-zinc-500"
+                        colSpan={INVOICE_TABLE_COL_COUNT}
+                        className="px-4 py-12 text-center"
                       >
-                        No invoices yet — upload a receipt to get started
+                        <p className="text-zinc-600">
+                          {DASHBOARD_COPY.emptyInvoices}
+                        </p>
+                        {/* Ticket 05: CTA ชัด — เปิด file picker ทันที */}
+                        <button
+                          type="button"
+                          onClick={openFilePicker}
+                          disabled={isUploading}
+                          className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {DASHBOARD_COPY.emptyUploadCta}
+                        </button>
                       </td>
                     </tr>
                   )}
@@ -832,10 +939,10 @@ export default function DashboardPage() {
                     invoices.length === 0 && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={INVOICE_TABLE_COL_COUNT}
                           className="px-4 py-8 text-center text-zinc-500"
                         >
-                          No invoices match your search / filters
+                          {DASHBOARD_COPY.noFilterMatch}
                         </td>
                       </tr>
                     )}
@@ -847,6 +954,9 @@ export default function DashboardPage() {
                           {invoice.date}
                         </td>
                         <td className="px-4 py-3">{invoice.storeName}</td>
+                        <td className="px-4 py-3 text-zinc-600">
+                          {invoice.category}
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs">
                           {invoice.taxId}
                         </td>
@@ -860,10 +970,10 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => void openInvoice(invoice)}
-                            className="rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100"
-                            aria-label={`View invoice ${invoice.storeName}`}
+                            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100"
+                            aria-label={viewInvoiceAriaLabel(invoice.storeName)}
                           >
-                            [ &gt; ]
+                            {ACTION_COPY.viewInvoice}
                           </button>
                         </td>
                       </tr>
@@ -888,13 +998,15 @@ export default function DashboardPage() {
               <h2 id="review-title" className="text-lg font-semibold">
                 Review & Verify Invoice Data
               </h2>
+              {/* Ticket 02: ปุ่ม Close ชัด — ไม่ใช้ [ x ] placeholder */}
               <button
                 type="button"
+                ref={modalCloseRef}
                 onClick={closeReviewModal}
-                className="rounded-md px-2 py-1 text-zinc-500 hover:bg-zinc-100"
-                aria-label="Close"
+                className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100"
+                aria-label={ACTION_COPY.closeModalAria}
               >
-                [ x ]
+                {ACTION_COPY.close}
               </button>
             </div>
 
@@ -906,7 +1018,7 @@ export default function DashboardPage() {
                 <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-lg border border-dashed border-zinc-300 bg-white">
                   {isLoadingPreview && (
                     <p className="px-4 text-center text-sm text-zinc-500">
-                      Loading preview…
+                      {LOADING.loadingPreview}
                     </p>
                   )}
                   {!isLoadingPreview && previewError && (
@@ -939,7 +1051,7 @@ export default function DashboardPage() {
                     !previewError &&
                     !modalPreviewUrl && (
                       <p className="px-4 text-center text-sm text-zinc-400">
-                        No receipt file available
+                        {DASHBOARD_COPY.noPreview}
                       </p>
                     )}
                 </div>
@@ -988,11 +1100,11 @@ export default function DashboardPage() {
 
                 <label className="block text-sm">
                   <span className="text-zinc-600">Invoice Date</span>
+                  {/* Ticket 04: date picker แทนพิมพ์ YYYY-MM-DD เอง */}
                   <input
-                    type="text"
+                    type="date"
                     value={formDate}
                     onChange={(event) => setFormDate(event.target.value)}
-                    placeholder="YYYY-MM-DD"
                     disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
@@ -1025,7 +1137,7 @@ export default function DashboardPage() {
                   </select>
                 </label>
 
-                {/* Step F3: ข้อความสถานะ — ใบซ้ำต้องชัดว่าไม่ใช่ error ทั่วไป */}
+                {/* Ticket 01: คำอธิบาย status แบบ user-facing (ไม่โชว์ enum ดิบ) */}
                 <p
                   className={
                     selectedInvoice.status === "DUPLICATE"
@@ -1033,9 +1145,7 @@ export default function DashboardPage() {
                       : "text-sm text-amber-700"
                   }
                 >
-                  {selectedInvoice.status === "DUPLICATE"
-                    ? "[!] Status: DUPLICATE — ใบนี้ซ้ำกับที่มีในระบบ (เลขผู้เสียภาษี + เลขที่บิล)"
-                    : `[!] Status: ${selectedInvoice.status}`}
+                  {getInvoiceStatusHint(selectedInvoice.status)}
                 </p>
 
                 {saveError && (
@@ -1045,24 +1155,41 @@ export default function DashboardPage() {
                   <p className="text-sm text-emerald-700">{saveMessage}</p>
                 )}
 
-                <div className="flex justify-between pt-2">
+                {/* Ticket 02: บอกเหตุผลเมื่อ Save disabled (DUPLICATE / OCR ยังไม่จบ) */}
+                <div className="flex items-start justify-between gap-4 pt-2">
                   <button
                     type="button"
                     onClick={closeReviewModal}
                     className="rounded-lg border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
                   >
-                    Cancel
+                    {ACTION_COPY.cancel}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSave()}
-                    disabled={
-                      isSaving || !isSaveableStatus(selectedInvoice.status)
-                    }
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isSaving ? "Saving..." : "Save Invoice"}
-                  </button>
+                  <div className="flex flex-col items-end gap-1.5">
+                    {!isSaveableStatus(selectedInvoice.status) &&
+                      getSaveDisabledHint(selectedInvoice.status) && (
+                        <p
+                          className={
+                            selectedInvoice.status === "DUPLICATE"
+                              ? "max-w-xs text-right text-xs text-red-600"
+                              : "max-w-xs text-right text-xs text-zinc-500"
+                          }
+                        >
+                          {getSaveDisabledHint(selectedInvoice.status)}
+                        </p>
+                      )}
+                    <button
+                      type="button"
+                      onClick={() => void handleSave()}
+                      disabled={
+                        isSaving || !isSaveableStatus(selectedInvoice.status)
+                      }
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSaving
+                        ? ACTION_COPY.saving
+                        : ACTION_COPY.saveInvoice}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

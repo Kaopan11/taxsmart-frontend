@@ -1,21 +1,8 @@
-import { ClosingCta } from "@/components/homepage/ClosingCta";
-import { HeroSection } from "@/components/homepage/HeroSection";
-import { ProductFeatures } from "@/components/homepage/ProductFeatures";
-import { SiteNavbar } from "@/components/homepage/SiteNavbar";
+import { HomePageClient } from "@/components/homepage/HomePageClient";
 
 /**
- * หน้าแรก `/` — homepage landing
- * Flow: Home → Register / Login → Dashboard
+ * หน้าแรก `/` — guest landing หรือ Welcome Hub หลัง login (Phase B)
  */
 export default function HomePage() {
-  return (
-    <div className="flex min-h-screen flex-col bg-zinc-100 text-zinc-900">
-      <SiteNavbar />
-      <main className="flex-1">
-        <HeroSection />
-        <ProductFeatures />
-        <ClosingCta />
-      </main>
-    </div>
-  );
+  return <HomePageClient />;
 }

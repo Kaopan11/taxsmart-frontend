@@ -1,15 +1,17 @@
 "use client";
 
-import Link from "next/link";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { AdminAuthSkeleton } from "@/components/skeletons/AdminAuthSkeleton";
+import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listAdminUsers, type AdminUserRow } from "@/lib/admin-api";
 import { ensureSession, fetchMe, logoutRequest } from "@/lib/auth-api";
 import { isAdminRole, type StoredAuthUser } from "@/lib/auth-storage";
+import { ADMIN_COPY, EMPTY_CELL, LOADING } from "@/lib/ui-copy";
 
 /**
  * P3: หน้า Admin — เห็นได้เฉพาะ role === ADMIN
- * เรียก GET /admin/users
  */
 export default function AdminPage() {
   const router = useRouter();
@@ -74,47 +76,18 @@ export default function AdminPage() {
   }
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-100 text-sm text-zinc-500">
-        Checking admin access…
-      </div>
-    );
+    return <AdminAuthSkeleton />;
   }
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
-      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
-            TS
-          </div>
-          <span className="text-lg font-semibold">TaxSmart AI</span>
-        </Link>
-        <div className="flex items-center gap-3 text-sm">
-          <Link href="/dashboard" className="text-zinc-600 hover:text-zinc-900">
-            Dashboard
-          </Link>
-          <span className="text-zinc-600">
-            {authUser?.fullName || authUser?.email}
-          </span>
-          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
-            ADMIN
-          </span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+      <AppHeader variant="admin" user={authUser} onLogout={handleLogout} />
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            All registered users (GET /admin/users)
+            {ADMIN_COPY.pageSubtitle}
           </p>
         </div>
 
@@ -134,13 +107,19 @@ export default function AdminPage() {
                 <th className="px-4 py-3 font-medium">Created</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody aria-busy={loading || undefined}>
               {loading && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                    Loading…
-                  </td>
-                </tr>
+                <TableBodySkeleton
+                  rows={6}
+                  columnCount={4}
+                  loadingLabel={LOADING.loadingUsers}
+                  columnWidths={[
+                    "h-4 w-full max-w-48",
+                    "h-4 w-full max-w-32",
+                    "h-5 w-14 rounded-md",
+                    "h-4 w-20",
+                  ]}
+                />
               )}
               {!loading && users.length === 0 && (
                 <tr>
@@ -153,7 +132,7 @@ export default function AdminPage() {
                 users.map((user) => (
                   <tr key={user.id} className="border-t border-zinc-100">
                     <td className="px-4 py-3">{user.email}</td>
-                    <td className="px-4 py-3">{user.fullName ?? "—"}</td>
+                    <td className="px-4 py-3">{user.fullName ?? EMPTY_CELL}</td>
                     <td className="px-4 py-3">
                       <span
                         className={

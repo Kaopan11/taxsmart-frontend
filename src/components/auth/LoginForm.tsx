@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { ensureSession, loginRequest } from "@/lib/auth-api";
+import { LOADING } from "@/lib/ui-copy";
 
 /**
  * P1: ฟอร์ม Login — เรียก POST /auth/login จริง แล้วเก็บ JWT
@@ -57,7 +58,9 @@ export function LoginForm() {
 
   if (checkingSession) {
     return (
-      <p className="text-center text-sm text-zinc-500">Checking session…</p>
+      <p className="text-center text-sm text-zinc-500">
+        {LOADING.checkingSession}
+      </p>
     );
   }
 
