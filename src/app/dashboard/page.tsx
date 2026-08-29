@@ -149,6 +149,13 @@ function parseFormDate(raw: string): string | undefined {
   return undefined;
 }
 
+/** Ticket 04: ค่าที่ `<input type="date">` รับได้ — YYYY-MM-DD หรือว่าง */
+function toDateInputValue(value: string): string {
+  const raw = displayToFormValue(value);
+  if (!raw) return "";
+  return parseFormDate(raw) ?? "";
+}
+
 /** จาก fileUrl หรือ mime ว่าเป็น PDF หรือไม่ */
 function isPdfPreview(fileUrl?: string | null, mime?: string): boolean {
   if (mime === "application/pdf") return true;
@@ -203,6 +210,8 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** blob URL ที่ FE สร้างจาก GET /file — ต้อง revoke ตอนปิด modal */
   const serverPreviewUrlRef = useRef<string | null>(null);
+  /** Ticket 04: โฟกัสปุ่ม Close ตอนเปิด dialog */
+  const modalCloseRef = useRef<HTMLButtonElement>(null);
 
   // P1: รอเช็ก token ก่อนโชว์ dashboard
   const [authReady, setAuthReady] = useState(false);
@@ -595,7 +604,7 @@ export default function DashboardPage() {
     setFormStoreName(displayToFormValue(selectedInvoice.storeName));
     setFormTaxId(displayToFormValue(selectedInvoice.taxId));
     setFormInvoiceNumber(displayToFormValue(selectedInvoice.invoiceNumber));
-    setFormDate(displayToFormValue(selectedInvoice.date));
+    setFormDate(toDateInputValue(selectedInvoice.date));
     setFormAmount(displayToFormValue(selectedInvoice.amount));
     setFormCategory(selectedInvoice.category || "Other");
     setSaveError(null);
@@ -610,6 +619,29 @@ export default function DashboardPage() {
     setSaveError(null);
     setSaveMessage(null);
   }
+
+  // Ticket 04: Esc ปิด modal — ใช้ closeReviewModal เพื่อ cleanup preview blob
+  useEffect(() => {
+    if (!selectedInvoice) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReviewModal();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ผูกกับเปิด/ปิด modal
+  }, [selectedInvoice]);
+
+  // Ticket 04: โฟกัสเข้า dialog เมื่อเปิด (a11y พื้นฐาน)
+  useEffect(() => {
+    if (selectedInvoice) {
+      modalCloseRef.current?.focus();
+    }
+  }, [selectedInvoice?.id]);
 
   async function handleSave() {
     if (!selectedInvoice || !isSaveableStatus(selectedInvoice.status)) {
@@ -658,7 +690,7 @@ export default function DashboardPage() {
       setFormStoreName(displayToFormValue(row.storeName));
       setFormTaxId(displayToFormValue(row.taxId));
       setFormInvoiceNumber(displayToFormValue(row.invoiceNumber));
-      setFormDate(displayToFormValue(row.date));
+      setFormDate(toDateInputValue(row.date));
       setFormAmount(displayToFormValue(row.amount));
       setFormCategory(row.category || "Other");
       setSaveMessage(DASHBOARD_COPY.saved);
@@ -899,6 +931,7 @@ export default function DashboardPage() {
               {/* Ticket 02: ปุ่ม Close ชัด — ไม่ใช้ [ x ] placeholder */}
               <button
                 type="button"
+                ref={modalCloseRef}
                 onClick={closeReviewModal}
                 className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100"
                 aria-label={ACTION_COPY.closeModalAria}
@@ -997,11 +1030,11 @@ export default function DashboardPage() {
 
                 <label className="block text-sm">
                   <span className="text-zinc-600">Invoice Date</span>
+                  {/* Ticket 04: date picker แทนพิมพ์ YYYY-MM-DD เอง */}
                   <input
-                    type="text"
+                    type="date"
                     value={formDate}
                     onChange={(event) => setFormDate(event.target.value)}
-                    placeholder="YYYY-MM-DD"
                     disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
