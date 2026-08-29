@@ -89,6 +89,9 @@ const STATUS_FILTER_OPTIONS: Array<InvoiceStatus | "all"> = [
   "DUPLICATE",
 ];
 
+/** Ticket 05: จำนวนคอลัมน์ตาราง — ใช้ colSpan แถว empty/loading */
+const INVOICE_TABLE_COL_COUNT = 7;
+
 function formatCategory(raw?: string | null): string {
   if (!raw) return "Other";
   return CATEGORY_LABELS[raw] ?? raw;
@@ -243,6 +246,8 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Ticket 05: ไฟล์ลากอยู่เหนือ upload zone — เปลี่ยนขอบ/พื้นหลัง */
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // ---------- Step F2: ค่า filter จากแถบค้นหา ----------
   const [search, setSearch] = useState("");
@@ -494,8 +499,28 @@ export default function DashboardPage() {
     }
   }
 
+  function onDragEnter(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    if (!isUploading) {
+      setIsDragOver(true);
+    }
+  }
+
+  function onDragOverZone(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+  }
+
+  function onDragLeaveZone(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    const related = event.relatedTarget as Node | null;
+    if (!event.currentTarget.contains(related)) {
+      setIsDragOver(false);
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    setIsDragOver(false);
     if (isUploading) return;
     const file = event.dataTransfer.files?.[0];
     if (file) {
@@ -750,14 +775,24 @@ export default function DashboardPage() {
 
         <section
           id="upload-zone"
-          className="rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center"
-          onDragOver={(event) => event.preventDefault()}
+          className={
+            isDragOver
+              ? "rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50 px-6 py-14 text-center ring-2 ring-emerald-200 transition-colors"
+              : "rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center transition-colors"
+          }
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOverZone}
+          onDragLeave={onDragLeaveZone}
           onDrop={onDrop}
         >
           <p className="text-base font-medium">
-            Drag & Drop Receipt / Tax Invoice Image Here
+            {isDragOver
+              ? DASHBOARD_COPY.uploadDropActive
+              : DASHBOARD_COPY.uploadZoneTitle}
           </p>
-          <p className="mt-1 text-sm text-zinc-500">PNG, JPG, PDF (max 5MB)</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {DASHBOARD_COPY.uploadZoneSub}
+          </p>
 
           <input
             ref={fileInputRef}
@@ -774,7 +809,7 @@ export default function DashboardPage() {
             disabled={isUploading}
             className="mt-6 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isUploading ? LOADING.processing : "Choose File"}
+            {isUploading ? LOADING.processing : DASHBOARD_COPY.chooseFile}
           </button>
 
           {uploadMessage && (
@@ -835,6 +870,9 @@ export default function DashboardPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Date</th>
                     <th className="px-4 py-3 font-medium">Store Name</th>
+                    <th className="px-4 py-3 font-medium">
+                      {DASHBOARD_COPY.tableCategory}
+                    </th>
                     <th className="px-4 py-3 font-medium">Tax ID</th>
                     <th className="px-4 py-3 font-medium">Amount</th>
                     <th className="px-4 py-3 font-medium">Status</th>
@@ -847,7 +885,7 @@ export default function DashboardPage() {
                   {isLoadingList && (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={INVOICE_TABLE_COL_COUNT}
                         className="px-4 py-8 text-center text-zinc-500"
                       >
                         {LOADING.loadingInvoices}
@@ -858,10 +896,21 @@ export default function DashboardPage() {
                   {!isLoadingList && allInvoices.length === 0 && !listError && (
                     <tr>
                       <td
-                        colSpan={6}
-                        className="px-4 py-8 text-center text-zinc-500"
+                        colSpan={INVOICE_TABLE_COL_COUNT}
+                        className="px-4 py-12 text-center"
                       >
-                        {DASHBOARD_COPY.emptyInvoices}
+                        <p className="text-zinc-600">
+                          {DASHBOARD_COPY.emptyInvoices}
+                        </p>
+                        {/* Ticket 05: CTA ชัด — เปิด file picker ทันที */}
+                        <button
+                          type="button"
+                          onClick={openFilePicker}
+                          disabled={isUploading}
+                          className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {DASHBOARD_COPY.emptyUploadCta}
+                        </button>
                       </td>
                     </tr>
                   )}
@@ -872,7 +921,7 @@ export default function DashboardPage() {
                     invoices.length === 0 && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={INVOICE_TABLE_COL_COUNT}
                           className="px-4 py-8 text-center text-zinc-500"
                         >
                           {DASHBOARD_COPY.noFilterMatch}
@@ -887,6 +936,9 @@ export default function DashboardPage() {
                           {invoice.date}
                         </td>
                         <td className="px-4 py-3">{invoice.storeName}</td>
+                        <td className="px-4 py-3 text-zinc-600">
+                          {invoice.category}
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs">
                           {invoice.taxId}
                         </td>

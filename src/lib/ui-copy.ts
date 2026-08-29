@@ -65,8 +65,15 @@ export const ADMIN_COPY = {
 
 export const DASHBOARD_COPY = {
   emptyInvoices: "No invoices yet — upload a receipt to get started",
+  emptyUploadCta: "Upload your first receipt",
   noFilterMatch: "No invoices match your search or filters",
   noPreview: "No receipt file available",
+  uploadZoneTitle: "Drag & Drop Receipt / Tax Invoice Image Here",
+  uploadZoneSub: "PNG, JPG, PDF (max 5MB)",
+  /** Ticket 05: ข้อความตอนลากไฟล์เข้า upload zone */
+  uploadDropActive: "Drop to upload",
+  chooseFile: "Choose File",
+  tableCategory: "Category",
   uploadDuplicate:
     "Duplicate receipt — same tax ID and invoice number already exist",
   uploadOcrFailed: "OCR failed — try uploading again or check the file",
