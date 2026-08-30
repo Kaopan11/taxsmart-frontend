@@ -1,7 +1,9 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
+import { AdminUserMobileCardList } from "@/components/admin/AdminUserMobileCardList";
 import { AdminAuthSkeleton } from "@/components/skeletons/AdminAuthSkeleton";
+import { AdminUserMobileCardSkeleton } from "@/components/skeletons/AdminUserMobileCardSkeleton";
 import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -83,7 +85,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-zinc-100 text-zinc-900">
       <AppHeader variant="admin" user={authUser} onLogout={handleLogout} />
 
-      <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -97,7 +99,20 @@ export default function AdminPage() {
           </p>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
+        {/* M4: card บน mobile */}
+        {loading && <AdminUserMobileCardSkeleton rows={5} />}
+
+        {!loading && users.length === 0 && (
+          <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm md:hidden">
+            No users found
+          </p>
+        )}
+
+        {!loading && users.length > 0 && (
+          <AdminUserMobileCardList users={users} />
+        )}
+
+        <div className="hidden overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm md:block">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
               <tr>

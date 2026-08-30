@@ -84,16 +84,29 @@ export const DASHBOARD_COPY = {
 export const ACTION_COPY = {
   tableActions: "Actions",
   viewInvoice: "View",
+  deleteInvoice: "Delete",
+  deleting: "Deleting…",
   close: "Close",
   closeModalAria: "Close review dialog",
   cancel: "Cancel",
   saveInvoice: "Save invoice",
   saving: "Saving…",
   /** แสดงใต้ปุ่ม Save เมื่อ disabled */
-  saveDisabledDuplicate:
-    "This receipt is a duplicate — saving changes is not allowed.",
+  saveDisabledDuplicate: "Can't save duplicate receipts.",
   saveDisabledOcr:
     "OCR is still running — you can save after processing finishes.",
+} as const;
+
+/** ข้อความ error ลบไม่สำเร็จ — แสดงใต้ตาราง */
+export const DELETE_COPY = {
+  failed: "Could not delete invoice. Please try again.",
+} as const;
+
+/** ConfirmDialog ก่อนลบ — ข้อความ minimal (ไม่โชว์ชื่อร้าน/ยอด) */
+export const DELETE_CONFIRM_COPY = {
+  title: "Delete invoice?",
+  message:
+    "This will permanently remove the invoice. This cannot be undone.",
 } as const;
 
 /** ข้อความสั้น ๆ ใต้ปุ่ม Save เมื่อกดไม่ได้ */
@@ -110,6 +123,11 @@ export function getSaveDisabledHint(status: string): string | null {
 /** aria-label สำหรับปุ่ม View ในแต่ละแถว */
 export function viewInvoiceAriaLabel(storeName: string): string {
   return `View invoice for ${storeName}`;
+}
+
+/** aria-label สำหรับปุ่ม Delete ในแต่ละแถว */
+export function deleteInvoiceAriaLabel(storeName: string): string {
+  return `Delete invoice for ${storeName}`;
 }
 
 /** Ticket 06 + 03: ข้อความ navbar ร่วม (Dashboard / Admin / Log out / guest CTA) */
