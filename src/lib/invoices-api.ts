@@ -139,7 +139,19 @@ export async function pollInvoiceUntilDone(
   maxAttempts = 60,
 ): Promise<InvoiceApiResponse> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const invoice = await getInvoiceById(id);
+    let invoice: InvoiceApiResponse;
+    try {
+      invoice = await getInvoiceById(id);
+    } catch (error) {
+      // Ticket 02: ใบถูกลบระหว่าง poll — หยุดเงียบ ๆ ไม่ upsert กลับ
+      if (
+        error instanceof Error &&
+        error.message.includes("Get invoice failed (404)")
+      ) {
+        throw new Error("INVOICE_NOT_FOUND");
+      }
+      throw error;
+    }
 
     if (
       invoice.ocrStatus === "COMPLETED" ||
@@ -155,6 +167,11 @@ export async function pollInvoiceUntilDone(
   throw new Error("OCR timed out — try again later");
 }
 
+/** ใช้ใน upload flow เมื่อ poll เจอใบที่ถูกลบไปแล้ว */
+export function isInvoiceNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message === "INVOICE_NOT_FOUND";
+}
+
 export async function updateInvoice(
   id: string,
   body: UpdateInvoiceBody,
@@ -166,6 +183,14 @@ export async function updateInvoice(
   });
   await assertOk(response, "Update invoice");
   return response.json() as Promise<InvoiceApiResponse>;
+}
+
+/** DELETE /invoices/:id — สำเร็จแล้ว backend คืน 204 ไม่มี body */
+export async function deleteInvoice(id: string): Promise<void> {
+  const response = await apiFetch(`${API_URL}/invoices/${id}`, {
+    method: "DELETE",
+  });
+  await assertOk(response, "Delete invoice");
 }
 
 /**

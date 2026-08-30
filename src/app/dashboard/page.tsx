@@ -1,7 +1,10 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
+import { InvoiceMobileCardList } from "@/components/invoices/InvoiceMobileCardList";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DashboardAuthSkeleton } from "@/components/skeletons/DashboardAuthSkeleton";
+import { InvoiceMobileCardSkeleton } from "@/components/skeletons/InvoiceMobileCardSkeleton";
 import { SummaryCardsSkeleton } from "@/components/skeletons/SummaryCardsSkeleton";
 import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,17 +24,22 @@ import {
 import {
   ACTION_COPY,
   DASHBOARD_COPY,
+  DELETE_CONFIRM_COPY,
+  DELETE_COPY,
   EMPTY_CELL,
   formatInvoiceStatus,
   formatStatusFilterLabel,
   getInvoiceStatusHint,
   getSaveDisabledHint,
   LOADING,
+  deleteInvoiceAriaLabel,
   viewInvoiceAriaLabel,
 } from "@/lib/ui-copy";
 import {
+  deleteInvoice,
   fetchInvoiceFileBlob,
   getInvoiceById,
+  isInvoiceNotFoundError,
   listInvoices,
   pollInvoiceUntilDone,
   updateInvoice,
@@ -229,6 +237,15 @@ export default function DashboardPage() {
     useState<DashboardInvoice | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
+  /** Ticket 01 delete: id ของแถวที่กำลังลบ — disable ปุ่มเฉพาะแถวนั้น */
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  /** เปิด ConfirmDialog ก่อนเรียก API ลบ */
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  /** Ticket 02: ผูก deleteError กับ invoice — โชว์ใน modal เฉพาะใบที่ลบไม่สำเร็จ */
+  const [deleteErrorInvoiceId, setDeleteErrorInvoiceId] = useState<string | null>(
+    null,
+  );
 
   const [formStoreName, setFormStoreName] = useState("");
   const [formTaxId, setFormTaxId] = useState("");
@@ -490,6 +507,10 @@ export default function DashboardPage() {
         handleUnauthorized();
         return;
       }
+      if (isInvoiceNotFoundError(error)) {
+        setUploadMessage(null);
+        return;
+      }
       const message =
         error instanceof Error ? error.message : "Upload failed";
       setUploadError(message);
@@ -655,9 +676,65 @@ export default function DashboardPage() {
     setSaveMessage(null);
   }
 
-  // Ticket 04: Esc ปิด modal — ใช้ closeReviewModal เพื่อ cleanup preview blob
+  /** Ticket 01 delete: ตัดออกจากตาราง + allInvoices → การ์ดสรุปอัปเดตจาก useMemo */
+  function removeInvoice(id: string) {
+    setInvoices((prev) => prev.filter((item) => item.id !== id));
+    setAllInvoices((prev) => prev.filter((item) => item.id !== id));
+    // ถ้า modal เปิดใบที่ลบอยู่ — ปิดและล้าง preview blob
+    if (selectedInvoice?.id === id) {
+      closeReviewModal();
+    }
+  }
+
+  function requestDelete(id: string) {
+    if (deletingId || pendingDeleteId) return;
+    setDeleteError(null);
+    setDeleteErrorInvoiceId(null);
+    setPendingDeleteId(id);
+  }
+
+  function cancelDelete() {
+    if (deletingId) return;
+    setPendingDeleteId(null);
+  }
+
+  async function confirmDelete() {
+    const id = pendingDeleteId;
+    if (!id || deletingId) return;
+
+    setDeletingId(id);
+    setDeleteError(null);
+    setDeleteErrorInvoiceId(null);
+
+    try {
+      await deleteInvoice(id);
+      removeInvoice(id);
+      setPendingDeleteId(null);
+      // Ticket 02 optional: ล้าง deep link ?invoice= หลังลบสำเร็จ
+      if (searchParams.get("invoice") === id) {
+        router.replace("/dashboard", { scroll: false });
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED") {
+        handleUnauthorized();
+        return;
+      }
+      setDeleteErrorInvoiceId(id);
+      setDeleteError(
+        error instanceof Error ? error.message : DELETE_COPY.failed,
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  /** Ticket 02: ล็อกฟอร์ม/ปุ่ม modal ระหว่าง save หรือ delete */
+  const isDeleteBusy = deletingId !== null || pendingDeleteId !== null;
+  const isModalBusy = isSaving || isDeleteBusy;
+
+  // Ticket 04 + 02: Esc ปิด modal — ไม่ปิดระหว่าง save/delete หรือเมื่อ ConfirmDialog เปิด
   useEffect(() => {
-    if (!selectedInvoice) return;
+    if (!selectedInvoice || pendingDeleteId || isSaving || deletingId) return;
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -669,7 +746,7 @@ export default function DashboardPage() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ผูกกับเปิด/ปิด modal
-  }, [selectedInvoice]);
+  }, [selectedInvoice, pendingDeleteId, isSaving, deletingId]);
 
   // Ticket 04: โฟกัสเข้า dialog เมื่อเปิด (a11y พื้นฐาน)
   useEffect(() => {
@@ -679,7 +756,11 @@ export default function DashboardPage() {
   }, [selectedInvoice?.id]);
 
   async function handleSave() {
-    if (!selectedInvoice || !isSaveableStatus(selectedInvoice.status)) {
+    if (
+      !selectedInvoice ||
+      !isSaveableStatus(selectedInvoice.status) ||
+      isModalBusy
+    ) {
       return;
     }
 
@@ -754,7 +835,7 @@ export default function DashboardPage() {
         onLogout={handleLogout}
       />
 
-      <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         {/* ---------- Step 5: การ์ดจาก DB ---------- */}
         {isLoadingSummary ? (
           <SummaryCardsSkeleton />
@@ -787,8 +868,8 @@ export default function DashboardPage() {
           id="upload-zone"
           className={
             isDragOver
-              ? "rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50 px-6 py-14 text-center ring-2 ring-emerald-200 transition-colors"
-              : "rounded-xl border-2 border-dashed border-zinc-300 bg-white px-6 py-14 text-center transition-colors"
+              ? "rounded-xl border-2 border-dashed border-emerald-500 bg-emerald-50 px-4 py-10 text-center ring-2 ring-emerald-200 transition-colors sm:px-6 sm:py-14"
+              : "rounded-xl border-2 border-dashed border-zinc-300 bg-white px-4 py-10 text-center transition-colors sm:px-6 sm:py-14"
           }
           onDragEnter={onDragEnter}
           onDragOver={onDragOverZone}
@@ -817,7 +898,7 @@ export default function DashboardPage() {
             type="button"
             onClick={openFilePicker}
             disabled={isUploading}
-            className="mt-6 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-6 min-h-11 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isUploading ? LOADING.processing : DASHBOARD_COPY.chooseFile}
           </button>
@@ -838,10 +919,10 @@ export default function DashboardPage() {
               placeholder="Search Store / Tax ID / Invoice No..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+              className="min-h-11 flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             />
             <select
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
+              className="min-h-11 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
               value={categoryFilter}
               onChange={(event) => setCategoryFilter(event.target.value)}
             >
@@ -853,7 +934,7 @@ export default function DashboardPage() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
+              className="min-h-11 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600"
               value={statusFilter}
               onChange={(event) =>
                 setStatusFilter(event.target.value as "all" | InvoiceStatus)
@@ -873,7 +954,55 @@ export default function DashboardPage() {
             </p>
           )}
 
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+          {deleteError &&
+            !(
+              selectedInvoice &&
+              deleteErrorInvoiceId === selectedInvoice.id
+            ) && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {deleteError}
+            </p>
+          )}
+
+          {/* M3: card list บน mobile — ตารางเต็มอยู่ด้านล่าง (md+) */}
+          {isLoadingList && <InvoiceMobileCardSkeleton rows={4} />}
+
+          {!isLoadingList && allInvoices.length === 0 && !listError && (
+            <div className="rounded-xl border border-zinc-200 bg-white px-4 py-12 text-center shadow-sm md:hidden">
+              <p className="text-zinc-600">{DASHBOARD_COPY.emptyInvoices}</p>
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={isUploading}
+                className="mt-4 min-h-11 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {DASHBOARD_COPY.emptyUploadCta}
+              </button>
+            </div>
+          )}
+
+          {!isLoadingList &&
+            allInvoices.length > 0 &&
+            invoices.length === 0 && (
+              <p className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm md:hidden">
+                {DASHBOARD_COPY.noFilterMatch}
+              </p>
+            )}
+
+          {!isLoadingList && invoices.length > 0 && (
+            <InvoiceMobileCardList
+              invoices={invoices}
+              deletingId={deletingId}
+              pendingDeleteId={pendingDeleteId}
+              onView={(row) => {
+                const invoice = invoices.find((item) => item.id === row.id);
+                if (invoice) void openInvoice(invoice);
+              }}
+              onDelete={requestDelete}
+            />
+          )}
+
+          <div className="hidden overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm md:block">
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
@@ -906,7 +1035,7 @@ export default function DashboardPage() {
                         "h-4 w-28 font-mono",
                         "h-4 w-16",
                         "h-5 w-16 rounded-full",
-                        "h-7 w-12 rounded-md mx-auto max-w-12",
+                        "h-7 w-24 rounded-md mx-auto max-w-24",
                       ]}
                     />
                   )}
@@ -967,14 +1096,33 @@ export default function DashboardPage() {
                           <StatusBadge status={invoice.status} />
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => void openInvoice(invoice)}
-                            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100"
-                            aria-label={viewInvoiceAriaLabel(invoice.storeName)}
-                          >
-                            {ACTION_COPY.viewInvoice}
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void openInvoice(invoice)}
+                              disabled={deletingId === invoice.id}
+                              className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label={viewInvoiceAriaLabel(invoice.storeName)}
+                            >
+                              {ACTION_COPY.viewInvoice}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => requestDelete(invoice.id)}
+                              disabled={
+                                deletingId === invoice.id ||
+                                pendingDeleteId !== null
+                              }
+                              className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label={deleteInvoiceAriaLabel(
+                                invoice.storeName,
+                              )}
+                            >
+                              {deletingId === invoice.id
+                                ? ACTION_COPY.deleting
+                                : ACTION_COPY.deleteInvoice}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1003,7 +1151,8 @@ export default function DashboardPage() {
                 type="button"
                 ref={modalCloseRef}
                 onClick={closeReviewModal}
-                className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100"
+                disabled={isModalBusy}
+                className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label={ACTION_COPY.closeModalAria}
               >
                 {ACTION_COPY.close}
@@ -1068,7 +1217,9 @@ export default function DashboardPage() {
                     type="text"
                     value={formStoreName}
                     onChange={(event) => setFormStoreName(event.target.value)}
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -1079,7 +1230,9 @@ export default function DashboardPage() {
                     type="text"
                     value={formTaxId}
                     onChange={(event) => setFormTaxId(event.target.value)}
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
                   />
                 </label>
@@ -1093,7 +1246,9 @@ export default function DashboardPage() {
                     onChange={(event) =>
                       setFormInvoiceNumber(event.target.value)
                     }
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono"
                   />
                 </label>
@@ -1105,7 +1260,9 @@ export default function DashboardPage() {
                     type="date"
                     value={formDate}
                     onChange={(event) => setFormDate(event.target.value)}
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -1116,7 +1273,9 @@ export default function DashboardPage() {
                     type="text"
                     value={formAmount}
                     onChange={(event) => setFormAmount(event.target.value)}
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   />
                 </label>
@@ -1126,7 +1285,9 @@ export default function DashboardPage() {
                   <select
                     value={formCategory}
                     onChange={(event) => setFormCategory(event.target.value)}
-                    disabled={isSaving || !isSaveableStatus(selectedInvoice.status)}
+                    disabled={
+                      isModalBusy || !isSaveableStatus(selectedInvoice.status)
+                    }
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                   >
                     {CATEGORY_FILTER_OPTIONS.map((label) => (
@@ -1154,16 +1315,37 @@ export default function DashboardPage() {
                 {saveMessage && (
                   <p className="text-sm text-emerald-700">{saveMessage}</p>
                 )}
+                {/* Ticket 02: error ลบใน modal — เฉพาะใบที่เปิด review อยู่ */}
+                {deleteError &&
+                  deleteErrorInvoiceId === selectedInvoice.id && (
+                    <p className="text-sm text-red-600">{deleteError}</p>
+                  )}
 
-                {/* Ticket 02: บอกเหตุผลเมื่อ Save disabled (DUPLICATE / OCR ยังไม่จบ) */}
-                <div className="flex items-start justify-between gap-4 pt-2">
-                  <button
-                    type="button"
-                    onClick={closeReviewModal}
-                    className="rounded-lg border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
-                  >
-                    {ACTION_COPY.cancel}
-                  </button>
+                {/* Ticket 02: Delete + Cancel ซ้าย · Save ขวา */}
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => requestDelete(selectedInvoice.id)}
+                      disabled={isModalBusy}
+                      className="min-h-11 rounded-lg border border-red-200 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={deleteInvoiceAriaLabel(
+                        selectedInvoice.storeName,
+                      )}
+                    >
+                      {deletingId === selectedInvoice.id
+                        ? ACTION_COPY.deleting
+                        : ACTION_COPY.deleteInvoice}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeReviewModal}
+                      disabled={isModalBusy}
+                      className="min-h-11 rounded-lg border border-zinc-300 px-4 py-2.5 text-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {ACTION_COPY.cancel}
+                    </button>
+                  </div>
                   <div className="flex flex-col items-end gap-1.5">
                     {!isSaveableStatus(selectedInvoice.status) &&
                       getSaveDisabledHint(selectedInvoice.status) && (
@@ -1181,9 +1363,10 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => void handleSave()}
                       disabled={
-                        isSaving || !isSaveableStatus(selectedInvoice.status)
+                        isModalBusy ||
+                        !isSaveableStatus(selectedInvoice.status)
                       }
-                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-h-11 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                     >
                       {isSaving
                         ? ACTION_COPY.saving
@@ -1196,6 +1379,18 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title={DELETE_CONFIRM_COPY.title}
+        message={DELETE_CONFIRM_COPY.message}
+        variant="destructive"
+        confirmLabel={ACTION_COPY.deleteInvoice}
+        isLoading={deletingId !== null}
+        stackOnTop={selectedInvoice !== null}
+        onConfirm={() => void confirmDelete()}
+        onCancel={cancelDelete}
+      />
     </div>
   );
 }
