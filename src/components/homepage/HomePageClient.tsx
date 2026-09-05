@@ -13,12 +13,18 @@ import { useHomeSession } from "@/hooks/useHomeSession";
 import {
   computeInvoiceSummary,
   countInvoiceStatuses,
+  formatTaxSavingsHint,
   pickRecentInvoices,
 } from "@/lib/invoice-display";
 import {
   listInvoices,
   type InvoiceApiResponse,
 } from "@/lib/invoices-api";
+import {
+  DEFAULT_TAX_YEAR,
+  getTaxSavings,
+} from "@/lib/tax-api";
+import { HOMEPAGE_COPY } from "@/lib/ui-copy";
 
 /**
  * Phase B: หน้าแรก — สลับ guest landing vs Welcome Hub หลัง login
@@ -29,35 +35,49 @@ export function HomePageClient() {
 
   const [invoices, setInvoices] = useState<InvoiceApiResponse[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+  /** Ticket 02: Tax Savings จาก API — แยกจาก computeInvoiceSummary */
+  const [taxSavingsAmount, setTaxSavingsAmount] = useState(0);
+  const [taxSavingsHint, setTaxSavingsHint] = useState<string>(
+    HOMEPAGE_COPY.summaryTaxSavingsUnavailable,
+  );
+  const [loadingTaxSavings, setLoadingTaxSavings] = useState(false);
 
-  // โหลด invoice เมื่อ session พร้อม + login แล้วเท่านั้น
+  // โหลด invoice + tax savings เมื่อ session พร้อม + login แล้วเท่านั้น
   useEffect(() => {
     if (!sessionChecked || !loggedIn) {
       setInvoices([]);
+      setTaxSavingsAmount(0);
+      setTaxSavingsHint(HOMEPAGE_COPY.summaryTaxSavingsUnavailable);
       return;
     }
 
     let cancelled = false;
 
-    async function loadInvoices() {
+    async function loadHubData() {
       setLoadingInvoices(true);
-      try {
-        const rows = await listInvoices();
-        if (!cancelled) {
-          setInvoices(rows);
-        }
-      } catch {
-        if (!cancelled) {
-          setInvoices([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingInvoices(false);
-        }
+      setLoadingTaxSavings(true);
+
+      const invoicesPromise = listInvoices().catch(() => [] as InvoiceApiResponse[]);
+      const savingsPromise = getTaxSavings(DEFAULT_TAX_YEAR).catch(() => null);
+
+      const [rows, savings] = await Promise.all([invoicesPromise, savingsPromise]);
+
+      if (cancelled) return;
+
+      setInvoices(rows);
+      setLoadingInvoices(false);
+
+      if (savings) {
+        setTaxSavingsAmount(savings.taxSavings);
+        setTaxSavingsHint(formatTaxSavingsHint(savings.effectiveRate));
+      } else {
+        setTaxSavingsAmount(0);
+        setTaxSavingsHint(HOMEPAGE_COPY.summaryTaxSavingsUnavailable);
       }
+      setLoadingTaxSavings(false);
     }
 
-    void loadInvoices();
+    void loadHubData();
     return () => {
       cancelled = true;
     };
@@ -78,7 +98,8 @@ export function HomePageClient() {
     [invoices],
   );
 
-  const hubLoading = !sessionChecked || loadingInvoices;
+  const hubLoading =
+    !sessionChecked || loadingInvoices || loadingTaxSavings;
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-100 text-zinc-900">
@@ -97,6 +118,8 @@ export function HomePageClient() {
             />
             <HomeSummaryCards
               summary={sessionChecked ? summary : null}
+              taxSavingsAmount={taxSavingsAmount}
+              taxSavingsHint={taxSavingsHint}
               loading={hubLoading}
             />
             <HomeRecentInvoices rows={recentRows} loading={hubLoading} />
