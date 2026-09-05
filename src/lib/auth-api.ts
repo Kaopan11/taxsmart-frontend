@@ -181,3 +181,66 @@ export async function logoutRequest(): Promise<void> {
 export function logoutLocal() {
   clearSession();
 }
+
+/** แยก message จาก Nest (string หรือ join ด้วย comma) */
+export function parseAuthErrorMessages(message: string): string[] {
+  return message
+    .split(/,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+export type LoginFieldErrors = {
+  emailError?: string;
+  passwordError?: string;
+  formError?: string;
+};
+
+/** map ข้อความ POST /auth/login → error ใต้ช่อง */
+export function mapLoginError(message: string): LoginFieldErrors {
+  if (message === "Email is incorrect") {
+    return { emailError: message };
+  }
+  if (message === "Password is incorrect") {
+    return { passwordError: message };
+  }
+  return { formError: message };
+}
+
+export type RegisterFieldErrors = {
+  fullNameError?: string;
+  emailError?: string;
+  passwordError?: string;
+  formError?: string;
+};
+
+/** map ข้อความ POST /auth/register / ValidationPipe → error ใต้ช่อง */
+export function mapRegisterError(message: string): RegisterFieldErrors {
+  const messages = parseAuthErrorMessages(message);
+  const result: RegisterFieldErrors = {};
+  const general: string[] = [];
+
+  for (const msg of messages) {
+    if (msg === "Email is already registered" || msg === "Invalid email") {
+      result.emailError = msg;
+    } else if (
+      msg === "Name is required" ||
+      msg === "Name must be between 6 and 20 characters"
+    ) {
+      result.fullNameError = msg;
+    } else if (
+      msg === "Password is required" ||
+      msg === "Password must be more than 8 characters"
+    ) {
+      result.passwordError = msg;
+    } else {
+      general.push(msg);
+    }
+  }
+
+  if (general.length > 0) {
+    result.formError = general.join(", ");
+  }
+
+  return result;
+}

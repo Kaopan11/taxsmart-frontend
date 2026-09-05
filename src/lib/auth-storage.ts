@@ -54,3 +54,8 @@ export function isLoggedIn(): boolean {
 export function isAdminRole(role?: string | null): boolean {
   return role === "ADMIN";
 }
+
+/** FE-1: หลัง login/register หรือ session มีอยู่แล้ว — redirect ตาม role */
+export function getPostAuthPath(role?: string | null): string {
+  return isAdminRole(role) ? "/admin" : "/dashboard";
+}
