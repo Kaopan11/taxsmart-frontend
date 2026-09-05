@@ -3,21 +3,23 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { ensureSession, loginRequest } from "@/lib/auth-api";
-import { LOADING } from "@/lib/ui-copy";
+import { ensureSession, loginRequest, mapLoginError } from "@/lib/auth-api";
+import { getPostAuthPath, getStoredUser } from "@/lib/auth-storage";
+import { AUTH_COPY, LOADING } from "@/lib/ui-copy";
 
 /**
  * P1: ฟอร์ม Login — เรียก POST /auth/login จริง แล้วเก็บ JWT
- * P5: ถ้ามี session อยู่แล้ว → ส่งไป /dashboard (ไม่พึ่ง demo)
+ * FE-1: error แยกช่อง + redirect ตาม role
  */
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  // สลับซ่อน/แสดงรหัสผ่าน (UI อย่างเดียว — ไม่เกี่ยวกับ backend)
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
@@ -25,7 +27,7 @@ export function LoginForm() {
     void ensureSession().then((ok) => {
       if (cancelled) return;
       if (ok) {
-        router.replace("/dashboard");
+        router.replace(getPostAuthPath(getStoredUser()?.role));
         return;
       }
       setCheckingSession(false);
@@ -35,22 +37,33 @@ export function LoginForm() {
     };
   }, [router]);
 
+  function clearErrors() {
+    setEmailError(null);
+    setPasswordError(null);
+    setFormError(null);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
+    clearErrors();
 
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
-      setError("Please enter email and password.");
+      setFormError(AUTH_COPY.loginMissingFields);
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await loginRequest(trimmedEmail, password);
-      router.push("/dashboard");
+      const data = await loginRequest(trimmedEmail, password);
+      router.push(getPostAuthPath(data.user.role));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed");
+      const message =
+        err instanceof Error ? err.message : AUTH_COPY.signInFailed;
+      const mapped = mapLoginError(message);
+      setEmailError(mapped.emailError ?? null);
+      setPasswordError(mapped.passwordError ?? null);
+      setFormError(mapped.formError ?? null);
     } finally {
       setIsSubmitting(false);
     }
@@ -75,11 +88,20 @@ export function LoginForm() {
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setEmailError(null);
+            setFormError(null);
+          }}
           disabled={isSubmitting}
           className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
           placeholder="you@example.com"
         />
+        {emailError ? (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            {emailError}
+          </p>
+        ) : null}
       </div>
 
       <div>
@@ -95,7 +117,11 @@ export function LoginForm() {
             type={showPassword ? "text" : "password"}
             autoComplete="current-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordError(null);
+              setFormError(null);
+            }}
             disabled={isSubmitting}
             className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-11 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
             placeholder="••••••••"
@@ -141,13 +167,21 @@ export function LoginForm() {
             )}
           </button>
         </div>
+        {passwordError ? (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            {passwordError}
+          </p>
+        ) : null}
       </div>
 
-      {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-          {error}
+      {formError ? (
+        <p
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
+          {formError}
         </p>
-      )}
+      ) : null}
 
       <button
         type="submit"

@@ -6,6 +6,17 @@
 /** ค่าว่างในตารางและฟอร์ม */
 export const EMPTY_CELL = "—";
 
+/** FE-1: ข้อความ validation ฝั่ง client — ให้ตรง backend auth UX */
+export const AUTH_COPY = {
+  loginMissingFields: "Please enter email and password.",
+  registerMissingFields: "Please enter all required fields.",
+  fullNameRequired: "Name is required",
+  fullNameLength: "Name must be between 6 and 20 characters",
+  passwordMinLength: "Password must be more than 8 characters",
+  signInFailed: "Sign in failed",
+  registerFailed: "Registration failed",
+} as const;
+
 /** Loading — ใช้ชุดเดียวทุกหน้า */
 export const LOADING = {
   checkingSession: "Checking session…",

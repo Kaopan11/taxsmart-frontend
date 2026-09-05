@@ -3,22 +3,25 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { ensureSession, registerRequest } from "@/lib/auth-api";
-import { LOADING } from "@/lib/ui-copy";
+import { ensureSession, mapRegisterError, registerRequest } from "@/lib/auth-api";
+import { getPostAuthPath, getStoredUser } from "@/lib/auth-storage";
+import { AUTH_COPY, LOADING } from "@/lib/ui-copy";
 
 /**
  * P1: ฟอร์ม Register — เรียก POST /auth/register จริง
- * P5: ถ้ามี session อยู่แล้ว → ส่งไป /dashboard
+ * FE-1: fullName บังคับ 6–20, password ≥ 9, field errors, redirect ตาม role
  */
 export function RegisterForm() {
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [fullNameError, setFullNameError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
-  // สลับซ่อน/แสดงรหัสผ่าน (UI อย่างเดียว — ไม่เกี่ยวกับ backend)
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
@@ -26,7 +29,7 @@ export function RegisterForm() {
     void ensureSession().then((ok) => {
       if (cancelled) return;
       if (ok) {
-        router.replace("/dashboard");
+        router.replace(getPostAuthPath(getStoredUser()?.role));
         return;
       }
       setCheckingSession(false);
@@ -36,31 +39,69 @@ export function RegisterForm() {
     };
   }, [router]);
 
+  function clearFieldErrors() {
+    setFullNameError(null);
+    setEmailError(null);
+    setPasswordError(null);
+    setFormError(null);
+  }
+
+  /** Client validation — ข้อความให้ตรง Nest RegisterDto */
+  function validateClient(): boolean {
+    clearFieldErrors();
+    let valid = true;
+
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName) {
+      setFullNameError(AUTH_COPY.fullNameRequired);
+      valid = false;
+    } else if (trimmedName.length < 6 || trimmedName.length > 20) {
+      setFullNameError(AUTH_COPY.fullNameLength);
+      valid = false;
+    }
+
+    if (!trimmedEmail || !password) {
+      setFormError(AUTH_COPY.registerMissingFields);
+      valid = false;
+    }
+
+    if (password.length < 9) {
+      setPasswordError(AUTH_COPY.passwordMinLength);
+      valid = false;
+    }
+
+    return valid;
+  }
+
+  function applyRegisterErrors(message: string) {
+    const mapped = mapRegisterError(message);
+    setFullNameError(mapped.fullNameError ?? null);
+    setEmailError(mapped.emailError ?? null);
+    setPasswordError(mapped.passwordError ?? null);
+    setFormError(mapped.formError ?? null);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
+    if (!validateClient()) return;
 
     const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
-      setError("Please enter email and password.");
-      return;
-    }
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
+    const trimmedName = fullName.trim();
 
     setIsSubmitting(true);
     try {
-      await registerRequest({
+      const data = await registerRequest({
         email: trimmedEmail,
         password,
-        fullName,
+        fullName: trimmedName,
       });
-      router.push("/dashboard");
+      router.push(getPostAuthPath(data.user.role));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+      const message =
+        err instanceof Error ? err.message : AUTH_COPY.registerFailed;
+      applyRegisterErrors(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -81,18 +122,27 @@ export function RegisterForm() {
           htmlFor="register-fullname"
           className="block text-sm font-medium text-zinc-700"
         >
-          Full name <span className="font-normal text-zinc-400">(optional)</span>
+          Full name
         </label>
         <input
           id="register-fullname"
           type="text"
           autoComplete="name"
           value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
+          onChange={(e) => {
+            setFullName(e.target.value);
+            setFullNameError(null);
+            setFormError(null);
+          }}
           disabled={isSubmitting}
           className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
           placeholder="Alex SME"
         />
+        {fullNameError ? (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            {fullNameError}
+          </p>
+        ) : null}
       </div>
 
       <div>
@@ -107,11 +157,20 @@ export function RegisterForm() {
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setEmailError(null);
+            setFormError(null);
+          }}
           disabled={isSubmitting}
           className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
           placeholder="you@example.com"
         />
+        {emailError ? (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            {emailError}
+          </p>
+        ) : null}
       </div>
 
       <div>
@@ -127,7 +186,11 @@ export function RegisterForm() {
             type={showPassword ? "text" : "password"}
             autoComplete="new-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordError(null);
+              setFormError(null);
+            }}
             disabled={isSubmitting}
             className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-11 text-sm text-zinc-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
             placeholder="••••••••"
@@ -173,13 +236,21 @@ export function RegisterForm() {
             )}
           </button>
         </div>
+        {passwordError ? (
+          <p className="mt-1 text-xs text-red-600" role="alert">
+            {passwordError}
+          </p>
+        ) : null}
       </div>
 
-      {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-          {error}
+      {formError ? (
+        <p
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
+          {formError}
         </p>
-      )}
+      ) : null}
 
       <button
         type="submit"
