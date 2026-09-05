@@ -2,6 +2,7 @@
 
 import { AppHeader } from "@/components/layout/AppHeader";
 import { InvoiceMobileCardList } from "@/components/invoices/InvoiceMobileCardList";
+import { TaxProfileSettings } from "@/components/tax/TaxProfileSettings";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DashboardAuthSkeleton } from "@/components/skeletons/DashboardAuthSkeleton";
 import { InvoiceMobileCardSkeleton } from "@/components/skeletons/InvoiceMobileCardSkeleton";
@@ -924,6 +925,16 @@ export default function DashboardPage() {
             </article>
           </section>
         )}
+
+        {/* Ticket 03: ตั้ง Tax Profile → refetch savings หลัง save */}
+        {!isLoadingSummary ? (
+          <TaxProfileSettings
+            onProfileSaved={() => {
+              void refetchTaxSavings();
+            }}
+            onUnauthorized={handleUnauthorized}
+          />
+        ) : null}
 
         <section
           id="upload-zone"
