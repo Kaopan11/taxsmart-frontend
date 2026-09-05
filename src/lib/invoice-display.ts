@@ -54,11 +54,13 @@ export function mapApiToHomeRow(api: InvoiceApiResponse): HomeInvoiceRow {
 
 export type InvoiceSummary = {
   totalExpenses: number;
-  taxSavings: number;
   totalCount: number;
 };
 
-/** การ์ดสรุป — logic เดียวกับ dashboard (COMPLETED only + ประมาณ 15%) */
+/**
+ * การ์ด Total Expenses + Total Invoices — คำนวณฝั่ง client จากรายการ
+ * Tax Savings มาจาก GET /tax/savings (Ticket 02) ไม่รวมใน summary นี้
+ */
 export function computeInvoiceSummary(
   invoices: InvoiceApiResponse[],
 ): InvoiceSummary {
@@ -70,9 +72,18 @@ export function computeInvoiceSummary(
 
   return {
     totalExpenses,
-    taxSavings: totalExpenses * 0.15,
     totalCount: invoices.length,
   };
+}
+
+/** แปลง effectiveRate (0.105) → hint ใต้การ์ด Tax Savings */
+export function formatTaxSavingsHint(effectiveRate: number): string {
+  const percent = effectiveRate * 100;
+  const formatted = percent.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  });
+  return `Estimate at ${formatted}%`;
 }
 
 export type InvoiceStatusCounts = {

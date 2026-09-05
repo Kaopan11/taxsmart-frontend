@@ -78,6 +78,8 @@ export const DASHBOARD_COPY = {
     "Duplicate receipt — same tax ID and invoice number already exist",
   uploadOcrFailed: "OCR failed — try uploading again or check the file",
   saved: "Saved",
+  /** Ticket 02: GET /tax/savings ล้มเหลว */
+  taxSavingsUnavailable: "Estimate unavailable",
 } as const;
 
 /** Ticket 02: ปุ่ม action ในตาราง / modal */
@@ -162,7 +164,8 @@ export const HOMEPAGE_COPY = {
   summaryTotalExpenses: "Total Expenses",
   summaryTotalExpensesHint: "COMPLETED only",
   summaryTaxSavings: "Tax Savings",
-  summaryTaxSavingsHint: "Estimate 15%",
+  /** Ticket 02: ใช้เมื่อ GET /tax/savings ล้มเหลว — หน้าไม่พัง */
+  summaryTaxSavingsUnavailable: "Estimate unavailable",
   summaryTotalInvoices: "Total Invoices",
   recentTitle: "Recent receipts",
   recentEmpty: "No receipts yet — upload your first one from the dashboard.",

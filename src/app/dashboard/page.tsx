@@ -9,6 +9,7 @@ import { SummaryCardsSkeleton } from "@/components/skeletons/SummaryCardsSkeleto
 import { TableBodySkeleton } from "@/components/skeletons/TableBodySkeleton";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -35,6 +36,11 @@ import {
   deleteInvoiceAriaLabel,
   viewInvoiceAriaLabel,
 } from "@/lib/ui-copy";
+import { formatTaxSavingsHint } from "@/lib/invoice-display";
+import {
+  DEFAULT_TAX_YEAR,
+  getTaxSavings,
+} from "@/lib/tax-api";
 import {
   deleteInvoice,
   fetchInvoiceFileBlob,
@@ -282,6 +288,11 @@ export default function DashboardPage() {
   const [allInvoices, setAllInvoices] = useState<DashboardInvoice[]>([]);
   /** Ticket 07: โหลดการ์ดสรุปครั้งแรก — แสดง skeleton แทน 0 */
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  /** Ticket 02: Tax Savings จาก GET /tax/savings — ไม่ใช้ × 0.15 */
+  const [taxSavingsAmount, setTaxSavingsAmount] = useState(0);
+  const [taxSavingsHint, setTaxSavingsHint] = useState<string>(
+    DASHBOARD_COPY.taxSavingsUnavailable,
+  );
 
   // P2/P3: session + ดึง role ล่าสุดจาก GET /auth/me
   useEffect(() => {
@@ -325,6 +336,25 @@ export default function DashboardPage() {
     });
   }
 
+  /**
+   * Ticket 02: ดึง Tax Savings จาก backend — เรียกหลัง upload/save/delete
+   * ไม่ block UI หลักถ้า fail (fallback 0 + hint unavailable)
+   */
+  const refetchTaxSavings = useCallback(async () => {
+    try {
+      const data = await getTaxSavings(DEFAULT_TAX_YEAR);
+      setTaxSavingsAmount(data.taxSavings);
+      setTaxSavingsHint(formatTaxSavingsHint(data.effectiveRate));
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED") {
+        handleUnauthorized();
+        return;
+      }
+      setTaxSavingsAmount(0);
+      setTaxSavingsHint(DASHBOARD_COPY.taxSavingsUnavailable);
+    }
+  }, [router]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(search.trim());
@@ -332,7 +362,7 @@ export default function DashboardPage() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  // โหลดสรุปการ์ดครั้งเดียว (และหลังอัปโหลดจะ upsert แยก)
+  // โหลดสรุปการ์ดครั้งเดียว (invoices + tax savings คู่กัน)
   useEffect(() => {
     if (!authReady) return;
 
@@ -341,12 +371,38 @@ export default function DashboardPage() {
     async function loadSummary() {
       setIsLoadingSummary(true);
       try {
-        const rows = await listInvoices();
+        const [invoicesResult, savingsResult] = await Promise.allSettled([
+          listInvoices(),
+          getTaxSavings(DEFAULT_TAX_YEAR),
+        ]);
+
         if (cancelled) return;
-        setAllInvoices(rows.map((row) => mapApiToDashboard(row)));
-      } catch (error) {
-        if (error instanceof Error && error.message === "UNAUTHORIZED") {
-          handleUnauthorized();
+
+        if (invoicesResult.status === "fulfilled") {
+          setAllInvoices(
+            invoicesResult.value.map((row) => mapApiToDashboard(row)),
+          );
+        } else {
+          const error = invoicesResult.reason;
+          if (error instanceof Error && error.message === "UNAUTHORIZED") {
+            handleUnauthorized();
+            return;
+          }
+        }
+
+        if (savingsResult.status === "fulfilled") {
+          setTaxSavingsAmount(savingsResult.value.taxSavings);
+          setTaxSavingsHint(
+            formatTaxSavingsHint(savingsResult.value.effectiveRate),
+          );
+        } else {
+          const error = savingsResult.reason;
+          if (error instanceof Error && error.message === "UNAUTHORIZED") {
+            handleUnauthorized();
+            return;
+          }
+          setTaxSavingsAmount(0);
+          setTaxSavingsHint(DASHBOARD_COPY.taxSavingsUnavailable);
         }
       } finally {
         if (!cancelled) {
@@ -423,18 +479,16 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, debouncedSearch, categoryFilter, statusFilter]);
 
-  // Step F9: การ์ดสรุปจากรายการเต็ม — ไม่ผูกกับ filter ของตาราง
+  // Step F9: Total Expenses + Total Invoices จาก allInvoices — Tax Savings มาจาก API
   const summary = useMemo(() => {
     const completed = allInvoices.filter((row) => row.status === "COMPLETED");
     const totalExpenses = completed.reduce(
       (sum, row) => sum + (row.amountNumber ?? 0),
       0,
     );
-    const taxSavings = totalExpenses * 0.15;
 
     return {
       totalExpenses,
-      taxSavings,
       totalCount: allInvoices.length,
     };
   }, [allInvoices]);
@@ -486,6 +540,9 @@ export default function DashboardPage() {
         previewIsPdf: file.type === "application/pdf",
       });
       upsertInvoice(mapped);
+
+      // Ticket 02: OCR จบ — ยอดหักได้/backend อาจเปลี่ยน
+      void refetchTaxSavings();
 
       // Step F2: แยกผลหลัง OCR จบ — DUPLICATE ไม่ใช่ error
       if (done.ocrStatus === "COMPLETED") {
@@ -710,6 +767,8 @@ export default function DashboardPage() {
       await deleteInvoice(id);
       removeInvoice(id);
       setPendingDeleteId(null);
+      // Ticket 02: ลบใบแล้ว — refetch savings
+      void refetchTaxSavings();
       // Ticket 02 optional: ล้าง deep link ?invoice= หลังลบสำเร็จ
       if (searchParams.get("invoice") === id) {
         router.replace("/dashboard", { scroll: false });
@@ -810,6 +869,8 @@ export default function DashboardPage() {
       setFormAmount(displayToFormValue(row.amount));
       setFormCategory(row.category || "Other");
       setSaveMessage(DASHBOARD_COPY.saved);
+      // Ticket 02: แก้ใบแล้ว — readiness/amount อาจเปลี่ยน
+      void refetchTaxSavings();
     } catch (error) {
       if (error instanceof Error && error.message === "UNAUTHORIZED") {
         handleUnauthorized();
@@ -851,9 +912,9 @@ export default function DashboardPage() {
             <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
               <p className="text-sm text-zinc-500">Tax Savings</p>
               <p className="mt-2 text-2xl font-semibold">
-                {formatBaht(summary.taxSavings)}
+                {formatBaht(taxSavingsAmount)}
               </p>
-              <p className="mt-1 text-xs text-zinc-400">Estimate 15%</p>
+              <p className="mt-1 text-xs text-zinc-400">{taxSavingsHint}</p>
             </article>
             <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
               <p className="text-sm text-zinc-500">Total Invoices</p>
