@@ -44,15 +44,15 @@
 
 ```mermaid
 flowchart TD
-  A[Visit /] --> B{Logged in?}
+  A["Visit /"] --> B{Logged in?}
   B -->|No| C[Guest landing]
-  C --> D[/register]
-  C --> E[/login]
+  C --> D["/register"]
+  C --> E["/login"]
   D --> F{Role}
   E --> F
-  F -->|USER| G[/dashboard]
-  F -->|ADMIN| H[/admin]
-  B -->|Yes| I[Welcome hub on /]
+  F -->|USER| G["/dashboard"]
+  F -->|ADMIN| H["/admin"]
+  B -->|Yes| I["Welcome hub on /"]
   I --> G
   I --> H
 
@@ -61,10 +61,10 @@ flowchart TD
   K --> L{OCR status}
   L -->|COMPLETED| M[Show invoice data]
   L -->|FAILED / DUPLICATE| N[Show error state]
-  M --> O[Edit / delete / preview file]
+  M --> O["Edit / delete / preview file"]
 
   G --> P[Set tax profile]
-  P --> Q[View Tax Savings year=2026]
+  P --> Q["View Tax Savings year=2026"]
 
   H --> R[List all users]
 ```
